@@ -26,9 +26,10 @@ export async function fetchCandle(
   symbol: string,
   from: number,
   to: number,
-  token: string
+  token: string,
+  resolution = 'D'
 ): Promise<PricePoint[]> {
-  const url = `${BASE_URL}/stock/candle?symbol=${symbol}&resolution=D&from=${from}&to=${to}&token=${token}`
+  const url = `${BASE_URL}/stock/candle?symbol=${symbol}&resolution=${resolution}&from=${from}&to=${to}&token=${token}`
   const res = await fetch(url)
   if (!res.ok) {
     throw new Error(`Finnhub candle fetch failed for ${symbol}: ${res.status}`)

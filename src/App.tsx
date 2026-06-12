@@ -9,6 +9,7 @@ import { QuoteStrip } from './components/QuoteStrip'
 import { TelemetryBar, type MarketStatus } from './components/TelemetryBar'
 import { TICKER_COLORS } from './constants/tickerColors'
 import { useKeyboard } from './hooks/useKeyboard'
+import { getChartResolution } from './utils/chartResolution'
 import { getDateRangeStrings } from './utils/rangeDates'
 import { buildXSearchUrl } from './store/watchlistStore'
 
@@ -101,6 +102,7 @@ export default function BrianStocks() {
   const marketStatus = getUSMarketStatus()
   const lastUpdateStr = formatLastUpdate(lastUpdated)
   const primaryTicker = selected[0]
+  const chartResolution = getChartResolution(rangePreset)
 
   // === PORTFOLIO SIM (SPACEX readout) ===
   const positionRows = selected.map((ticker) => {
@@ -398,7 +400,7 @@ export default function BrianStocks() {
                 )}
               </div>
               <div className="text-[10px] text-[#555] mt-1.5 tracking-[1px]">
-                SOURCE: {finnhubToken ? 'FINNHUB CANDLES' : 'YAHOO FINANCE'} • DAILY BARS • UP TO 5 YEARS
+                SOURCE: {finnhubToken ? 'FINNHUB' : 'YAHOO'} • {chartResolution.label} • UP TO 5 YEARS
               </div>
             </div>
 

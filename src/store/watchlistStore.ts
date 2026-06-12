@@ -17,6 +17,7 @@ import type {
   Quote,
   RangePreset,
 } from '../types/market'
+import { getChartResolution } from '../utils/chartResolution'
 import { getRangeDates } from '../utils/rangeDates'
 
 export type { PricePoint, RangePreset } from '../types/market'
@@ -65,31 +66,46 @@ async function fetchSeriesForSymbol(
   symbol: string,
   period1: number,
   period2: number,
-  finnhubToken: string
+  finnhubToken: string,
+  resolution: { finnhub: string; yahoo: string }
 ): Promise<{ points: PricePoint[]; quote: Quote | null; ok: boolean }> {
-  if (finnhubToken) {
-    try {
-      const points = await fetchCandle(symbol, period1, period2, finnhubToken)
-      if (points.length > 0) {
-        const last = points[points.length - 1]?.value
-        return {
-          points,
-          quote: last ? { price: last, change: 0 } : null,
-          ok: true,
+  const attempts: Array<{ p1: number; p2: number; finnhub: string; yahoo: string }> = [
+    { p1: period1, p2: period2, finnhub: resolution.finnhub, yahoo: resolution.yahoo },
+  ]
+  // Weekend / holiday: widen to 5D daily if intraday returns nothing
+  if (resolution.finnhub !== 'D') {
+    const fiveDays = period2 - 5 * 86400
+    attempts.push({ p1: fiveDays, p2: period2, finnhub: 'D', yahoo: '1d' })
+  }
+
+  for (const attempt of attempts) {
+    if (finnhubToken) {
+      try {
+        const points = await fetchCandle(symbol, attempt.p1, attempt.p2, finnhubToken, attempt.finnhub)
+        if (points.length > 0) {
+          const last = points[points.length - 1]?.value
+          return {
+            points,
+            quote: last ? { price: last, change: 0 } : null,
+            ok: true,
+          }
         }
+      } catch {
+        console.warn('Finnhub candle failed for', symbol, '— falling back to Yahoo')
+      }
+    }
+
+    try {
+      const { points, quote } = await fetchYahooChart(symbol, attempt.p1, attempt.p2, attempt.yahoo)
+      if (points.length > 0) {
+        return { points, quote, ok: true }
       }
     } catch {
-      console.warn('Finnhub candle failed for', symbol, '— falling back to Yahoo')
+      console.warn('Yahoo fetch failed for', symbol)
     }
   }
 
-  try {
-    const { points, quote } = await fetchYahooChart(symbol, period1, period2)
-    return { points, quote, ok: points.length > 0 }
-  } catch {
-    console.warn('Yahoo fetch failed for', symbol)
-    return { points: [], quote: null, ok: false }
-  }
+  return { points: [], quote: null, ok: false }
 }
 
 function getInitialFinnhubToken(): string {
@@ -208,6 +224,7 @@ export const useWatchlistStore = create<WatchlistState>()(
         const { from, to } = getRangeDates(rangePreset)
         const period1 = Math.floor(from.getTime() / 1000)
         const period2 = Math.floor(to.getTime() / 1000)
+        const resolution = getChartResolution(rangePreset)
 
         const existingSeries = get().series
         const existingQuotes = get().quotes
@@ -226,7 +243,7 @@ export const useWatchlistStore = create<WatchlistState>()(
           const seriesResults = await batchFetch(
             selected,
             async (symbol) => {
-              const result = await fetchSeriesForSymbol(symbol, period1, period2, finnhubToken)
+              const result = await fetchSeriesForSymbol(symbol, period1, period2, finnhubToken, resolution)
               return { symbol, ...result }
             },
             5

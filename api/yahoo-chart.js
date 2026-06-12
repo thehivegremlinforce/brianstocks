@@ -1,13 +1,13 @@
 /** Vercel serverless proxy — Yahoo blocks some browser origins; server-side fetch is reliable */
 export default async function handler(req, res) {
-  const { symbol, period1, period2 } = req.query
+  const { symbol, period1, period2, interval = '1d' } = req.query
   if (!symbol || !period1 || !period2) {
     return res.status(400).json({ error: 'symbol, period1, period2 required' })
   }
 
   const url =
     `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}` +
-    `?period1=${period1}&period2=${period2}&interval=1d&indicators=quote&includeTimestamps=true`
+    `?period1=${period1}&period2=${period2}&interval=${interval}&indicators=quote&includeTimestamps=true`
 
   try {
     const yahooRes = await fetch(url, {

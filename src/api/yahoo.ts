@@ -51,9 +51,10 @@ async function fetchYahooChartRaw(
   symbol: string,
   period1: number,
   period2: number,
-  viaProxy: boolean
+  viaProxy: boolean,
+  interval = '1d'
 ): Promise<YahooChartResponse> {
-  const qs = `period1=${period1}&period2=${period2}&interval=1d&indicators=quote&includeTimestamps=true`
+  const qs = `period1=${period1}&period2=${period2}&interval=${interval}&indicators=quote&includeTimestamps=true`
   const url = viaProxy
     ? `/api/yahoo-chart?symbol=${encodeURIComponent(symbol)}&${qs}`
     : `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?${qs}`
@@ -68,16 +69,17 @@ async function fetchYahooChartRaw(
 export async function fetchYahooChart(
   symbol: string,
   period1: number,
-  period2: number
+  period2: number,
+  interval = '1d'
 ): Promise<{ points: PricePoint[]; quote: Quote | null }> {
   try {
-    const json = await fetchYahooChartRaw(symbol, period1, period2, false)
+    const json = await fetchYahooChartRaw(symbol, period1, period2, false, interval)
     const parsed = parseYahooChartJson(json)
     if (parsed.points.length > 0) return parsed
   } catch {
     console.warn('Direct Yahoo fetch failed for', symbol, '— trying proxy')
   }
 
-  const json = await fetchYahooChartRaw(symbol, period1, period2, true)
+  const json = await fetchYahooChartRaw(symbol, period1, period2, true, interval)
   return parseYahooChartJson(json)
 }
