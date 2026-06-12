@@ -1,0 +1,341 @@
+@import "tailwindcss";
+
+/* ═══════════════════════════════════════════════════════════════
+   BRIANSTOCKS — SPACEX DESIGN LANGUAGE (mission-control telemetry)
+   Deep black, high contrast, cyan accents, bold minimal, mono data.
+   ═══════════════════════════════════════════════════════════════ */
+
+:root {
+  --bg: #000000;
+  --bg-elev: #0a0a0a;
+  --bg-raised: #111111;
+  --border: #222222;
+  --border-hi: #333333;
+  --text: #ffffff;
+  --text-muted: #888888;
+  --text-dim: #555555;
+  --accent: #67e8f9;
+  --accent-dim: #22d3ee;
+  --green: #22c55e;
+  --red: #ef4444;
+  --yellow: #eab308;
+
+  --sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+}
+
+#root {
+  min-height: 100svh;
+}
+
+/* SPACEX-style labels */
+.label {
+  font-size: 10px;
+  letter-spacing: 2.5px;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.section-title {
+  font-size: 11px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--text);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 6px;
+  margin-bottom: 12px;
+}
+
+/* Cards / panels — crisp, minimal, high contrast */
+.panel {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+}
+
+.card {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  padding: 12px;
+}
+
+.metric {
+  font-family: var(--mono);
+  font-weight: 600;
+  font-size: 15px;
+}
+
+.metric-lg {
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: 22px;
+  line-height: 1.1;
+}
+
+/* Delta colors */
+.delta-pos { color: var(--green); }
+.delta-neg { color: var(--red); }
+.delta-flat { color: var(--text-muted); }
+
+/* Inputs — SpaceX minimal */
+.input {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 6px 10px;
+  font-family: var(--mono);
+  font-size: 13px;
+  border-radius: 2px;
+  outline: none;
+}
+.input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+/* Buttons — clean, high contrast */
+.btn {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  padding: 6px 14px;
+  border-radius: 2px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  transition: all 0.1s ease;
+}
+.btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.btn-accent {
+  background: var(--accent);
+  color: #000;
+  border-color: var(--accent);
+}
+.btn-accent:hover {
+  background: var(--accent-dim);
+  color: #000;
+  border-color: var(--accent-dim);
+}
+.btn-danger {
+  color: var(--red);
+  border-color: #3f1f1f;
+}
+.btn-danger:hover {
+  border-color: var(--red);
+  background: rgba(239, 68, 68, 0.1);
+}
+
+/* Chart container */
+.chart-container {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  padding: 8px;
+  height: 420px;
+}
+
+/* Tables — telemetry style */
+table.data {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+table.data th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--text-muted);
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  font-size: 10px;
+}
+table.data td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border-hi);
+}
+table.data tr:last-child td {
+  border-bottom: none;
+}
+
+/* News / list items */
+.news-item {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-hi);
+}
+.news-item:last-child {
+  border-bottom: none;
+}
+.news-headline {
+  font-size: 13px;
+  line-height: 1.35;
+  margin-bottom: 2px;
+}
+.news-meta {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-family: var(--mono);
+}
+
+/* X / links */
+.x-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+.x-link:hover {
+  text-decoration: underline;
+}
+
+/* Range chips — SpaceX toggle style */
+.range-chip {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 1.5px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 1px;
+  transition: all 0.1s;
+}
+.range-chip.active,
+.range-chip:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(103, 232, 249, 0.05);
+}
+
+/* Scrollbars — minimal */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-hi);
+  border-radius: 2px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Toaster overrides for dark */
+[data-sonner-toaster] {
+  --normal-bg: var(--bg-elev);
+  --normal-border: var(--border);
+  --normal-text: var(--text);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   DEEPENED SPACEX TELEMETRY AESTHETIC (A)
+   Persistent bar, scanlines / data readout, strict mono + alignment
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Telemetry bar — thin, high density, control-room */
+.telemetry-bar {
+  font-family: var(--mono);
+  border-top: 1px solid var(--border);
+}
+.telemetry-bar .tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Subtle CRT / scanline data-readout overlay (light, non-intrusive) */
+.panel,
+.card,
+.chart-container {
+  position: relative;
+}
+.panel::after,
+.card::after,
+.chart-container::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0px,
+    transparent 4px,
+    rgba(255, 255, 255, 0.028) 4px,
+    rgba(255, 255, 255, 0.028) 5px
+  );
+  pointer-events: none;
+  z-index: 1;
+  border-radius: inherit;
+  mix-blend-mode: screen;
+}
+
+/* Extra horizontal rules for control-screen density (use sparingly) */
+.hr-subtle {
+  height: 1px;
+  background: linear-gradient(to right, transparent, var(--border), transparent);
+  margin: 8px 0;
+}
+
+/* Strict mono + tabular alignment for ALL numeric data readouts */
+.metric, .metric-lg, table.data td, table.data th,
+.telemetry-bar, .x-link .font-mono, .numeric {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Slight mobile / responsiveness hardening (desktop-first but graceful) */
+@media (max-width: 640px) {
+  .telemetry-bar {
+    font-size: 9px;
+    letter-spacing: 1px;
+    height: 26px;
+  }
+  .section-title {
+    font-size: 10px;
+    letter-spacing: 2px;
+  }
+  .metric-lg {
+    font-size: 18px;
+  }
+  .label {
+    font-size: 9px;
+    letter-spacing: 1.5px;
+  }
+  .panel, .card {
+    padding: 10px;
+  }
+  /* (title shrink rule removed to avoid CSS build attribute selector warning on arbitrary Tailwind class) */
+  .range-chip {
+    font-size: 10px;
+    padding: 3px 7px;
+  }
+}
+
+/* Additional data readout feel */
+.tracking-tight-mono {
+  letter-spacing: 0.5px;
+}
