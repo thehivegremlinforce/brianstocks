@@ -723,6 +723,11 @@ export default function BrianStocks() {
             <div className="space-y-5 text-sm">
               <div>
                 <div className="label mb-1 tracking-[2px]">FINNHUB TOKEN (FREE — 60 CALLS/MIN)</div>
+                {(import.meta as any).env?.VITE_FINNHUB_TOKEN && (
+                  <div className="inline-flex items-center gap-1 text-[10px] text-[#22c55e] mb-1 px-1.5 py-0.5 bg-[#052e16] border border-[#166534] rounded">
+                    ✓ Using key from Vercel environment (VITE_FINNHUB_TOKEN)
+                  </div>
+                )}
                 <input
                   value={localToken}
                   onChange={e => setLocalToken(e.target.value)}
@@ -732,7 +737,7 @@ export default function BrianStocks() {
                 <div className="mt-1 text-[#67e8f9] text-xs">
                   Sign up free → <a href="https://finnhub.io/register" target="_blank" rel="noreferrer" className="underline">finnhub.io/register</a><br />
                   <strong>For Vercel:</strong> Set <code>VITE_FINNHUB_TOKEN</code> in your Vercel project Environment Variables (Production + Preview). It will be baked in at build time.<br />
-                  Local override or the Settings input still works and takes precedence.
+                  The Settings input can still override it for this browser/session.
                 </div>
               </div>
 
@@ -744,7 +749,7 @@ export default function BrianStocks() {
               <div className="text-[11px] text-[#666] border-t border-[#222] pt-3">
                 Price history and basic quotes always work via Yahoo (no key required).<br />
                 With a token you get live prices (via Finnhub), news, and earnings.<br />
-                For Vercel deploys, prefer setting <code>VITE_FINNHUB_TOKEN</code> in Vercel env vars so it works for all visitors without pasting.
+                When <code>VITE_FINNHUB_TOKEN</code> is set in Vercel, you'll see a green indicator above. You can still paste here to override for this browser.
               </div>
             </div>
           </div>
