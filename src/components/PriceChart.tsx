@@ -1,32 +1,28 @@
 import { useEffect, useRef } from 'react'
 import * as LightweightCharts from 'lightweight-charts'
-import type { PricePoint } from '../store/watchlistStore'
+import type { PricePoint } from '../types/market'
+import { getTickerColor } from '../constants/tickerColors'
 
 interface Props {
   series: Record<string, PricePoint[]>
   normalize?: boolean
   height?: number
-  // Optional advanced props (may be wired by other agents / future; declared for TS/build compat even if body simplified)
   chartType?: 'line' | 'candle'
   showVolume?: boolean
   indicators?: { sma20?: boolean; sma50?: boolean }
-}
-
-const TICKER_COLORS: Record<string, string> = {
-  NVDA: '#67e8f9',
-  AAPL: '#a3e635',
-  TSLA: '#f472b6',
-  META: '#60a5fa',
-  AMZN: '#fbbf24',
-  GOOGL: '#c084fc',
-  MSFT: '#4ade80',
-  AMD: '#f87171',
-  AVGO: '#38bdf8',
-  SMCI: '#fb923c',
+  primaryTicker?: string
 }
 
 export function PriceChart(props: Props) {
-  const { series, normalize = false, height = 420, chartType = 'line', showVolume = true, indicators = {} } = props
+  const {
+    series,
+    normalize = false,
+    height = 420,
+    chartType = 'line',
+    showVolume = true,
+    indicators = {},
+    primaryTicker: primaryTickerProp,
+  } = props
   const containerRef = useRef<HTMLDivElement>(null)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const chartRef = useRef<any>(null)
@@ -82,8 +78,10 @@ export function PriceChart(props: Props) {
     }
 
     const isCandle = chartType === 'candle'
-    // For candle + volume: always focus primary ticker (first key) for UX clarity with multi-series
-    const primaryTicker = tickers[0]
+    const primaryTicker =
+      primaryTickerProp && tickers.includes(primaryTickerProp)
+        ? primaryTickerProp
+        : tickers[0]
     const displayTickers = isCandle && primaryTicker ? [primaryTicker] : tickers
 
     displayTickers.forEach((ticker) => {
@@ -103,7 +101,7 @@ export function PriceChart(props: Props) {
         data = data.map(d => ({ ...d, value: (d.value / base) * 100 }))
       }
 
-      const color = TICKER_COLORS[ticker] || '#67e8f9'
+      const color = getTickerColor(ticker)
 
       if (isCandle) {
         // Use rich OHLC from store (already populated). Note: close is .value
@@ -224,7 +222,7 @@ export function PriceChart(props: Props) {
       window.removeEventListener('resize', handleResize)
       chart.remove()
     }
-  }, [series, normalize, height, chartType, showVolume, indicators])
+  }, [series, normalize, height, chartType, showVolume, indicators, primaryTickerProp])
 
   return (
     <div

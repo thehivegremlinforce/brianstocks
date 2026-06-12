@@ -1,21 +1,25 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import { subYears, subMonths, startOfYear, format } from 'date-fns'
+import { format } from 'date-fns'
+import {
+  batchFetch,
+  fetchCandle,
+  fetchCompanyNews,
+  fetchEarnings,
+  fetchMarketNews,
+  fetchQuote,
+} from '../api/finnhub'
+import { fetchYahooChart } from '../api/yahoo'
+import type {
+  EarningItem,
+  NewsItem,
+  PricePoint,
+  Quote,
+  RangePreset,
+} from '../types/market'
+import { getRangeDates } from '../utils/rangeDates'
 
-export type RangePreset =
-  | '1D' | '5D' | '1M' | '3M' | '6M' | 'YTD' | '1Y' | '2Y' | '5Y'
-
-export interface PricePoint {
-  time: number // unix seconds for lightweight-charts
-  value: number
-  // Enhanced for future use (volume + OHLC captured from Yahoo, optional to preserve compat)
-  // Also 'close' alias provided for extended chart rendering (candles/vol) without breaking line chart
-  close?: number
-  volume?: number
-  high?: number
-  low?: number
-  open?: number
-}
+export type { PricePoint, RangePreset } from '../types/market'
 
 interface WatchlistState {
   selected: string[]
@@ -23,19 +27,16 @@ interface WatchlistState {
   customFrom?: string
   customTo?: string
   series: Record<string, PricePoint[]>
-  quotes: Record<string, { price: number; change: number }>
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  news: any[]
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  marketNews: any[]
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  earnings: any[]
+  quotes: Record<string, Quote>
+  news: NewsItem[]
+  marketNews: NewsItem[]
+  earnings: EarningItem[]
   finnhubToken: string
   loading: boolean
-  lastUpdated: number | null   // unix ms of last successful data fetch
+  lastUpdated: number | null
   positions: Record<string, { shares: number; costBasis?: number }>
+  fetchGeneration: number
 
-  // actions
   setSelected: (tickers: string[]) => void
   addTicker: (ticker: string) => void
   removeTicker: (ticker: string) => void
@@ -47,35 +48,21 @@ interface WatchlistState {
   clearPosition: (ticker: string) => void
 }
 
-function getRangeDates(preset: RangePreset): { from: Date; to: Date } {
-  const to = new Date()
-  let from: Date
-  switch (preset) {
-    case '1D': from = subMonths(to, 0); from.setDate(from.getDate() - 1); break
-    case '5D': from = subMonths(to, 0); from.setDate(from.getDate() - 5); break
-    case '1M': from = subMonths(to, 1); break
-    case '3M': from = subMonths(to, 3); break
-    case '6M': from = subMonths(to, 6); break
-    case 'YTD': from = startOfYear(to); break
-    case '1Y': from = subYears(to, 1); break
-    case '2Y': from = subYears(to, 2); break
-    case '5Y':
-    default: from = subYears(to, 5); break
-  }
-  return { from, to }
-}
-
-// Debounce helper (module scope) for resilience: prevents hammering Yahoo on rapid range/selection changes from buttons, keys, etc.
 let yahooFetchDebounce: ReturnType<typeof setTimeout> | null = null
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function scheduleYahooFetch(getter: () => any) {
+function scheduleYahooFetch(getter: () => WatchlistState) {
   if (yahooFetchDebounce) clearTimeout(yahooFetchDebounce)
   yahooFetchDebounce = setTimeout(() => {
     const state = getter()
-    if (state?.selected?.length > 0 && typeof state.fetchAll === 'function') {
+    if (state.selected.length > 0) {
       state.fetchAll()
     }
   }, 300)
+}
+
+function getInitialFinnhubToken(): string {
+  if (typeof window === 'undefined') return ''
+  const envToken = import.meta.env.VITE_FINNHUB_TOKEN
+  return envToken || ''
 }
 
 export const useWatchlistStore = create<WatchlistState>()(
@@ -90,21 +77,15 @@ export const useWatchlistStore = create<WatchlistState>()(
       news: [],
       marketNews: [],
       earnings: [],
-      finnhubToken: (() => {
-        if (typeof window === 'undefined') return ''
-        // Support Vercel environment variable (must be prefixed VITE_ for Vite client exposure)
-        const envToken = (import.meta as any).env?.VITE_FINNHUB_TOKEN
-        if (envToken) return envToken
-        return localStorage.getItem('bs_finnhub') || ''
-      })(),
+      finnhubToken: getInitialFinnhubToken(),
       loading: false,
       lastUpdated: null,
       positions: {},
+      fetchGeneration: 0,
 
       setSelected: (tickers) => {
         set({ selected: tickers.slice(0, 10) })
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        scheduleYahooFetch(get as any)
+        scheduleYahooFetch(get)
       },
 
       addTicker: (ticker) => {
@@ -113,14 +94,20 @@ export const useWatchlistStore = create<WatchlistState>()(
         const { selected } = get()
         if (selected.includes(t) || selected.length >= 10) return
         set({ selected: [...selected, t] })
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        scheduleYahooFetch(get as any)
+        scheduleYahooFetch(get)
       },
 
       removeTicker: (ticker) => {
-        set((s) => ({ selected: s.selected.filter((x) => x !== ticker) }))
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        scheduleYahooFetch(get as any)
+        const t = ticker.toUpperCase()
+        set((s) => {
+          const newPositions = { ...s.positions }
+          delete newPositions[t]
+          return {
+            selected: s.selected.filter((x) => x !== t),
+            positions: newPositions,
+          }
+        })
+        scheduleYahooFetch(get)
       },
 
       setRange: (preset, from, to) => {
@@ -129,16 +116,25 @@ export const useWatchlistStore = create<WatchlistState>()(
           customFrom: from,
           customTo: to,
         })
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        scheduleYahooFetch(get as any)
+        scheduleYahooFetch(get)
       },
 
       setFinnhubToken: (token) => {
-        if (typeof window !== 'undefined') localStorage.setItem('bs_finnhub', token)
         set({ finnhubToken: token })
       },
 
-      clear: () => set({ selected: [], series: {}, quotes: {}, news: [], marketNews: [], earnings: [], lastUpdated: null, positions: {} }),
+      clear: () =>
+        set((s) => ({
+          selected: [],
+          series: {},
+          quotes: {},
+          news: [],
+          marketNews: [],
+          earnings: [],
+          lastUpdated: null,
+          positions: {},
+          fetchGeneration: s.fetchGeneration + 1,
+        })),
 
       setPosition: (ticker, shares, costBasis) => {
         const t = ticker.toUpperCase()
@@ -166,183 +162,160 @@ export const useWatchlistStore = create<WatchlistState>()(
         const { selected, rangePreset, finnhubToken } = get()
         if (selected.length === 0) return
 
-        set({ loading: true })
+        const generation = get().fetchGeneration + 1
+        set({ loading: true, fetchGeneration: generation })
 
         const { from, to } = getRangeDates(rangePreset)
         const period1 = Math.floor(from.getTime() / 1000)
         const period2 = Math.floor(to.getTime() / 1000)
 
-        const newSeries: Record<string, PricePoint[]> = {}
-        const newQuotes: Record<string, { price: number; change: number }> = {}
+        const existingSeries = get().series
+        const existingQuotes = get().quotes
+        const existingNews = get().news
+        const existingMarketNews = get().marketNews
+        const existingEarnings = get().earnings
+
+        const mergedSeries: Record<string, PricePoint[]> = { ...existingSeries }
+        const mergedQuotes: Record<string, Quote> = { ...existingQuotes }
+        let fetchedNews: NewsItem[] = existingNews
+        let fetchedMarketNews: NewsItem[] = existingMarketNews
+        let fetchedEarnings: EarningItem[] = existingEarnings
+        let anySuccess = false
 
         if (finnhubToken) {
-          // Use Finnhub candles for historical series when key present (more reliable than Yahoo for chart data + full OHLCV)
-          await Promise.all(
-            selected.map(async (symbol) => {
+          const candleResults = await batchFetch(
+            selected,
+            async (symbol) => {
               try {
-                const url = `https://finnhub.io/api/v1/stock/candle?symbol=${symbol}&resolution=D&from=${period1}&to=${period2}&token=${finnhubToken}`
-                const res = await fetch(url)
-                const data = await res.json()
-                if (data && data.s === 'ok' && Array.isArray(data.t)) {
-                  const points: PricePoint[] = []
-                  for (let i = 0; i < data.t.length; i++) {
-                    if (data.c[i] != null) {
-                      points.push({
-                        time: data.t[i],
-                        value: data.c[i],
-                        close: data.c[i],
-                        open: Array.isArray(data.o) ? data.o[i] : undefined,
-                        high: Array.isArray(data.h) ? data.h[i] : undefined,
-                        low: Array.isArray(data.l) ? data.l[i] : undefined,
-                        volume: Array.isArray(data.v) ? data.v[i] : undefined,
-                      })
-                    }
-                  }
-                  newSeries[symbol] = points
-
-                  const last = points[points.length - 1]?.value
-                  if (last) newQuotes[symbol] = { price: last, change: 0 }
-                }
+                const points = await fetchCandle(symbol, period1, period2, finnhubToken)
+                return { symbol, points, ok: points.length > 0 }
               } catch {
                 console.warn('Finnhub candle failed for', symbol)
+                return { symbol, points: [] as PricePoint[], ok: false }
               }
-            })
+            },
+            5
           )
-        } else {
-          // Yahoo for no-key historical (original behavior)
-          await Promise.all(
-            selected.map(async (symbol) => {
+
+          for (const { symbol, points, ok } of candleResults) {
+            if (ok) {
+              mergedSeries[symbol] = points
+              anySuccess = true
+              const last = points[points.length - 1]?.value
+              if (last) mergedQuotes[symbol] = { price: last, change: 0 }
+            }
+          }
+
+          const quoteResults = await batchFetch(
+            selected,
+            async (symbol) => {
               try {
-                const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?period1=${period1}&period2=${period2}&interval=1d&indicators=quote&includeTimestamps=true`
-                const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } })
-                const json = await res.json()
-                const result = json?.chart?.result?.[0]
-                if (!result) return
-
-                const timestamps: number[] = result.timestamp || []
-                const q = result.indicators?.quote?.[0] || {}
-                const closes: number[] = q.close || []
-                const opens: number[] = q.open || []
-                const highs: number[] = q.high || []
-                const lows: number[] = q.low || []
-                const volumes: number[] = q.volume || []
-
-                const points: PricePoint[] = []
-                for (let i = 0; i < timestamps.length; i++) {
-                  if (closes[i] != null) {
-                    points.push({
-                      time: timestamps[i],
-                      value: closes[i],
-                      close: closes[i],
-                      open: opens[i],
-                      high: highs[i],
-                      low: lows[i],
-                      volume: volumes[i],
-                    })
-                  }
-                }
-                newSeries[symbol] = points
-
-                const last = points[points.length - 1]?.value
-                const first = points[0]?.value
-                const chg = first && last ? ((last - first) / first) * 100 : 0
-                if (last) newQuotes[symbol] = { price: last, change: chg }
-              } catch {
-                console.warn('Yahoo fetch failed for', symbol)
-              }
-            })
-          )
-        }
-
-        // Current live quotes from Finnhub (when token present for reliable current price + daily change)
-        if (finnhubToken) {
-          await Promise.all(
-            selected.map(async (symbol) => {
-              try {
-                const url = `https://finnhub.io/api/v1/quote?symbol=${symbol}&token=${finnhubToken}`
-                const res = await fetch(url)
-                const q = await res.json()
-                if (q && typeof q.c === 'number') {
-                  newQuotes[symbol] = { price: q.c, change: q.dp || 0 }
-                }
+                const quote = await fetchQuote(symbol, finnhubToken)
+                return { symbol, quote, ok: quote != null }
               } catch {
                 console.warn('Finnhub current quote failed for', symbol)
+                return { symbol, quote: null, ok: false }
+              }
+            },
+            5
+          )
+
+          for (const { symbol, quote, ok } of quoteResults) {
+            if (ok && quote) {
+              mergedQuotes[symbol] = quote
+              anySuccess = true
+            }
+          }
+        } else {
+          const yahooResults = await Promise.all(
+            selected.map(async (symbol) => {
+              try {
+                const { points, quote } = await fetchYahooChart(symbol, period1, period2)
+                return { symbol, points, quote, ok: points.length > 0 }
+              } catch {
+                console.warn('Yahoo fetch failed for', symbol)
+                return { symbol, points: [] as PricePoint[], quote: null, ok: false }
               }
             })
           )
+
+          for (const { symbol, points, quote, ok } of yahooResults) {
+            if (ok) {
+              mergedSeries[symbol] = points
+              anySuccess = true
+              if (quote) mergedQuotes[symbol] = quote
+            }
+          }
         }
-
-        // 2. Finnhub (optional) for news/earnings/market news
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        let fetchedNews: any[] = []
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        let fetchedMarketNews: any[] = []
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        let fetchedEarnings: any[] = []
-
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const fetchedNewsLocal: any[] = []
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const fetchedEarningsLocal: any[] = []
 
         if (finnhubToken) {
           const today = format(new Date(), 'yyyy-MM-dd')
           const fromStr = format(from, 'yyyy-MM-dd')
 
-          if (selected.length > 0) {
-            await Promise.all(selected.map(async (symbol) => {
+          const newsResults = await batchFetch(
+            selected,
+            async (symbol) => {
               try {
-                // company news
-                const nUrl = `https://finnhub.io/api/v1/company-news?symbol=${symbol}&from=${fromStr}&to=${today}&token=${finnhubToken}`
-                const nRes = await fetch(nUrl)
-                const nData = await nRes.json()
-                if (Array.isArray(nData)) {
-                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                  fetchedNewsLocal.push(...nData.slice(0, 4).map((n: any) => ({ ...n, ticker: symbol })))
-                }
-
-                // earnings
-                const eUrl = `https://finnhub.io/api/v1/stock/earnings?symbol=${symbol}&token=${finnhubToken}`
-                const eRes = await fetch(eUrl)
-                const eData = await eRes.json()
-                if (Array.isArray(eData)) {
-                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                  fetchedEarningsLocal.push(...eData.slice(0, 2).map((e: any) => ({ ...e, ticker: symbol })))
-                }
+                const [news, earnings] = await Promise.all([
+                  fetchCompanyNews(symbol, fromStr, today, finnhubToken),
+                  fetchEarnings(symbol, finnhubToken),
+                ])
+                return { news, earnings, ok: true }
               } catch {
                 console.warn('Finnhub failed', symbol)
+                return { news: [] as NewsItem[], earnings: [] as EarningItem[], ok: false }
               }
-            }))
+            },
+            5
+          )
+
+          const newsLocal: NewsItem[] = []
+          const earningsLocal: EarningItem[] = []
+          let newsSuccess = false
+
+          for (const { news, earnings, ok } of newsResults) {
+            if (ok) {
+              newsLocal.push(...news)
+              earningsLocal.push(...earnings)
+              newsSuccess = true
+            }
           }
 
-          // Market news (general) — independent of selected tickers; when token present
           try {
-            const mUrl = `https://finnhub.io/api/v1/news?category=general&token=${finnhubToken}`
-            const mRes = await fetch(mUrl)
-            const mData = await mRes.json()
-            if (Array.isArray(mData)) {
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              fetchedMarketNews = mData.slice(0, 5).map((n: any) => ({ ...n, ticker: 'MKT' }))
+            const marketNews = await fetchMarketNews(finnhubToken)
+            if (marketNews.length > 0) {
+              fetchedMarketNews = marketNews
+              newsSuccess = true
             }
           } catch {
             console.warn('Finnhub market news failed')
           }
 
-          fetchedNews = fetchedNewsLocal
-          fetchedEarnings = fetchedEarningsLocal
+          if (newsSuccess) {
+            fetchedNews = newsLocal.slice(0, 12)
+            fetchedEarnings = earningsLocal
+            anySuccess = true
+          }
+        }
+
+        if (get().fetchGeneration !== generation) return
+
+        const selectedSet = new Set(selected)
+        for (const key of Object.keys(mergedSeries)) {
+          if (!selectedSet.has(key)) delete mergedSeries[key]
+        }
+        for (const key of Object.keys(mergedQuotes)) {
+          if (!selectedSet.has(key)) delete mergedQuotes[key]
         }
 
         set({
-          series: newSeries,
-          quotes: newQuotes,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          news: fetchedNews.slice(0, 12) as any,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          marketNews: fetchedMarketNews as any,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          earnings: fetchedEarnings as any,
+          series: mergedSeries,
+          quotes: mergedQuotes,
+          news: fetchedNews,
+          marketNews: fetchedMarketNews,
+          earnings: fetchedEarnings,
           loading: false,
-          lastUpdated: Date.now(),
+          ...(anySuccess ? { lastUpdated: Date.now() } : {}),
         })
       },
     }),
@@ -353,26 +326,24 @@ export const useWatchlistStore = create<WatchlistState>()(
         rangePreset: s.rangePreset,
         finnhubToken: s.finnhubToken,
         positions: s.positions,
+        series: s.series,
+        quotes: s.quotes,
+        lastUpdated: s.lastUpdated,
       }),
     }
   )
 )
 
-// --- X / news helpers (exported for UI + future; pure, no side effects) ---
-
 function getSentimentTerms(preset: RangePreset): string {
   const shortTerm: RangePreset[] = ['1D', '5D', '1M']
   if (shortTerm.includes(preset)) {
-    // near-term: focus on events/earnings/sentiment catalysts
     return '(earnings OR beat OR miss OR upgrade OR "this week" OR catalyst)'
   }
-  // longer term: aspirational / momentum words
   return '(moon OR tothemoon OR rocket OR bullish OR hodl OR "to the moon" OR long)'
 }
 
 export function buildXSearchQuery(tickers: string[], rangePreset: RangePreset): string {
   if (!tickers || tickers.length === 0) return ''
-  // sophisticated: OR for multiple tickers + context sentiment words chosen by range
   const tickerTerms = tickers.map((t) => '$' + t.toUpperCase())
   const base = tickerTerms.length > 1 ? tickerTerms.join(' OR ') : tickerTerms[0]
   const sentiment = getSentimentTerms(rangePreset)
@@ -382,11 +353,9 @@ export function buildXSearchQuery(tickers: string[], rangePreset: RangePreset): 
 export function buildXSearchUrl(tickers: string[], rangePreset: RangePreset, since: string): string {
   const q = buildXSearchQuery(tickers, rangePreset)
   if (!q) return 'https://x.com/explore'
-  // encode for safe URL; keep the since: filter + live
   return `https://x.com/search?q=${encodeURIComponent(q)}%20since%3A${since}&f=live`
 }
 
-// very light simulated buzz metric (non-network, for X panel flair)
 export function computeSimulatedBuzz(selectedCount: number, rangePreset: RangePreset): number {
   if (!selectedCount || selectedCount <= 0) return 0
   const baseFactor = ['1D', '5D'].includes(rangePreset) ? 21 : ['1M', '3M'].includes(rangePreset) ? 14 : 8

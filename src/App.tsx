@@ -1,39 +1,24 @@
 import { useState, useEffect } from 'react'
-import { Plus, X, Settings, RefreshCw, TrendingUp } from 'lucide-react'
+import { Plus, X, Settings, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
 import { useWatchlistStore, type RangePreset } from './store/watchlistStore'
 import { PriceChart } from './components/PriceChart'
+import { ChartCommandBar } from './components/ChartCommandBar'
+import { ChartLegend } from './components/ChartLegend'
+import { QuoteStrip } from './components/QuoteStrip'
+import { TelemetryBar, type MarketStatus } from './components/TelemetryBar'
+import { TICKER_COLORS } from './constants/tickerColors'
 import { useKeyboard } from './hooks/useKeyboard'
-import { format, subYears, startOfYear, subMonths } from 'date-fns'
+import { getDateRangeStrings } from './utils/rangeDates'
+import { buildXSearchUrl } from './store/watchlistStore'
 
 const POPULAR = ['NVDA', 'AAPL', 'TSLA', 'META', 'AMZN', 'GOOGL', 'MSFT', 'AMD', 'AVGO', 'SMCI']
 const RANGES: RangePreset[] = ['1D', '5D', '1M', '3M', '6M', 'YTD', '1Y', '2Y', '5Y']
 
-function getDateRangeForLinks(preset: RangePreset) {
-  const to = new Date()
-  let from: Date
-  switch (preset) {
-    case '1D': from = subMonths(to, 0); from.setDate(from.getDate() - 1); break
-    case '5D': from = subMonths(to, 0); from.setDate(from.getDate() - 5); break
-    case '1M': from = subMonths(to, 1); break
-    case '3M': from = subMonths(to, 3); break
-    case '6M': from = subMonths(to, 6); break
-    case 'YTD': from = startOfYear(to); break
-    case '1Y': from = subYears(to, 1); break
-    case '2Y': from = subYears(to, 2); break
-    default: from = subYears(to, 5)
-  }
-  return {
-    since: format(from, 'yyyy-MM-dd'),
-    until: format(to, 'yyyy-MM-dd'),
-  }
-}
-
 // SPACEX TELEMETRY: US Market status (NYSE hours in ET)
-function getUSMarketStatus(): { status: 'OPEN' | 'CLOSED' | 'PRE' | 'AFTER'; color: string } {
+function getUSMarketStatus(): MarketStatus {
   try {
     const now = new Date()
-    // Convert to ET
     const etStr = now.toLocaleString('en-US', {
       timeZone: 'America/New_York',
       hour: '2-digit',
@@ -45,14 +30,13 @@ function getUSMarketStatus(): { status: 'OPEN' | 'CLOSED' | 'PRE' | 'AFTER'; col
     const minute = parseInt(mStr, 10) || 0
     const mins = hour * 60 + minute
     const day = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' })).getDay()
-    if (day === 0 || day === 6) return { status: 'CLOSED', color: '#ef4444' }
-    // Pre: 04:00–09:29, Regular: 09:30–15:59, After: 16:00–19:59 ET
-    if (mins >= 4 * 60 && mins < 9 * 60 + 30) return { status: 'PRE', color: '#eab308' }
-    if (mins >= 9 * 60 + 30 && mins < 16 * 60) return { status: 'OPEN', color: '#22c55e' }
-    if (mins >= 16 * 60 && mins < 20 * 60) return { status: 'AFTER', color: '#eab308' }
-    return { status: 'CLOSED', color: '#ef4444' }
+    if (day === 0 || day === 6) return 'CLOSED'
+    if (mins >= 4 * 60 && mins < 9 * 60 + 30) return 'PRE'
+    if (mins >= 9 * 60 + 30 && mins < 16 * 60) return 'OPEN'
+    if (mins >= 16 * 60 && mins < 20 * 60) return 'AFTER'
+    return 'CLOSED'
   } catch {
-    return { status: 'CLOSED', color: '#ef4444' }
+    return 'CLOSED'
   }
 }
 
@@ -113,9 +97,10 @@ export default function BrianStocks() {
   const utcTime = currentTime.toISOString().slice(11, 19) + ' UTC'
 
   const canAdd = selected.length < 10
-  const { since, until } = getDateRangeForLinks(rangePreset)
-  const market = getUSMarketStatus()
+  const { since, until } = getDateRangeStrings(rangePreset)
+  const marketStatus = getUSMarketStatus()
   const lastUpdateStr = formatLastUpdate(lastUpdated)
+  const primaryTicker = selected[0]
 
   // === PORTFOLIO SIM (SPACEX readout) ===
   const positionRows = selected.map((ticker) => {
@@ -143,7 +128,14 @@ export default function BrianStocks() {
   const totalPnl = totalMarketValue - totalBasisValue
   const totalPnlPct = totalBasisValue !== 0 ? (totalPnl / totalBasisValue) * 100 : 0
 
-  useKeyboard(() => setShowSettings(true), () => setShowHelp(true))
+  useKeyboard(
+    () => setShowSettings(true),
+    () => setShowHelp(true),
+    () => {
+      setShowSettings(false)
+      setShowHelp(false)
+    },
+  )
 
   // Auto-fetch on mount ONLY. Resilience debounce for rapid range/selected/add/remove now lives inside
   // store (setRange, addTicker, removeTicker, setSelected) via 300ms scheduleYahooFetch — protects Yahoo.
@@ -153,11 +145,18 @@ export default function BrianStocks() {
 
   function handleAdd() {
     const t = tickerInput.trim().toUpperCase()
-    if (t && canAdd) {
-      addTicker(t)
-      setTickerInput('')
-      toast.success(`Added ${t}`)
+    if (!t) return
+    if (selected.includes(t)) {
+      toast.error(`${t} is already on the watchlist`)
+      return
     }
+    if (!canAdd) {
+      toast.error('Watchlist is full (10 tickers max)')
+      return
+    }
+    addTicker(t)
+    setTickerInput('')
+    toast.success(`Added ${t}`)
   }
 
   function handleQuick(t: string) {
@@ -173,7 +172,6 @@ export default function BrianStocks() {
 
   function handleRange(p: RangePreset) {
     setRange(p)
-    toast.info(`Range set to ${p}`)
   }
 
   function handleSaveToken() {
@@ -232,52 +230,15 @@ export default function BrianStocks() {
           </div>
         </div>
 
-        {/* PERSISTENT TELEMETRY BAR — deep SpaceX control screen vibe */}
-        <div className="telemetry-bar border-t border-[#1a1a1a] bg-[#050505]">
-          <div className="max-w-[1280px] mx-auto px-6 h-7 flex items-center justify-between text-[10px] font-mono tracking-[1.5px] text-[#999]">
-            <div className="flex items-center gap-5">
-              <span>UTC <span className="text-[#67e8f9] font-semibold tracking-[1px] tabular-nums">{utcTime}</span></span>
-              <span className="opacity-40">│</span>
-              <span>US MKT <span className="font-bold tabular-nums" style={{ color: market.color }}>{market.status}</span></span>
-              <span className="opacity-40">│</span>
-              <span>LAST DATA <span className="text-[#67e8f9] font-semibold tracking-[1px] tabular-nums">{lastUpdateStr}</span></span>
-            </div>
-            <div className="flex items-center gap-4">
-              <span className="flex items-center gap-1.5">
-                <span className="inline-block w-[7px] h-[7px] rounded-full bg-[#22c55e] shadow-[0_0_4px_#22c55e]" />
-                SIGNAL <span className="text-[#22c55e] font-bold">NOMINAL</span>
-              </span>
-              <span className="hidden sm:inline opacity-40">│</span>
-              <span className="text-[9px] text-[#555] tracking-[2px] hidden sm:inline">TELEMETRY • READOUT MODE</span>
-            </div>
-          </div>
-        </div>
+        <TelemetryBar
+          utcTime={utcTime}
+          marketStatus={marketStatus}
+          lastUpdateStr={lastUpdateStr}
+          loading={loading}
+        />
       </header>
 
       <div className="max-w-[1280px] mx-auto px-6 pt-6 pb-12 flex-1 flex flex-col gap-6">
-        {/* RANGE CONTROLS — SPACEX */}
-        <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
-          <div>
-            <div className="label mb-1.5">PRICE HISTORY RANGE — MAX 5 YEARS</div>
-            <div className="flex flex-wrap gap-1">
-              {RANGES.map(r => (
-                <button
-                  key={r}
-                  onClick={() => handleRange(r)}
-                  className={`range-chip ${rangePreset === r ? 'active' : ''}`}
-                >
-                  {r}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 text-xs text-[#888] font-mono">
-            {since} → {until}
-            <button onClick={clear} className="btn btn-danger ml-3">CLEAR WATCHLIST</button>
-          </div>
-        </div>
-
         <div className="grid grid-cols-1 lg:grid-cols-[280px,1fr] gap-6">
           {/* WATCHLIST SIDEBAR */}
           <div className="panel p-4 flex flex-col">
@@ -285,6 +246,7 @@ export default function BrianStocks() {
 
             <div className="flex gap-2 mb-3">
               <input
+                id="ticker-input"
                 value={tickerInput}
                 onChange={e => setTickerInput(e.target.value.toUpperCase())}
                 onKeyDown={e => e.key === 'Enter' && handleAdd()}
@@ -352,19 +314,13 @@ export default function BrianStocks() {
               {selected.map((ticker) => (
                 <div key={ticker} className="flex items-center justify-between bg-[#111] border border-[#222] px-3 py-2 group">
                   <div className="font-mono font-bold tracking-[2.5px]">{ticker}</div>
-                  <div className="flex items-center gap-3 text-xs font-mono">
-                    {quotes[ticker] && (
-                      <>
-                        <span>{quotes[ticker].price.toFixed(2)}</span>
-                        <span className={quotes[ticker].change >= 0 ? 'delta-pos' : 'delta-neg'}>
-                          {quotes[ticker].change >= 0 ? '+' : ''}{quotes[ticker].change.toFixed(1)}%
-                        </span>
-                      </>
-                    )}
-                    <button onClick={() => handleRemove(ticker)} className="text-[#555] hover:text-[#ef4444]">
-                      <X size={14} />
-                    </button>
-                  </div>
+                  <button
+                    onClick={() => handleRemove(ticker)}
+                    className="text-[#555] hover:text-[#ef4444]"
+                    aria-label={`Remove ${ticker}`}
+                  >
+                    <X size={14} />
+                  </button>
                 </div>
               ))}
             </div>
@@ -374,67 +330,45 @@ export default function BrianStocks() {
             </div>
           </div>
 
-          {/* CHART + METRICS */}
-          <div className="flex flex-col gap-4 min-w-0">
+          {/* CHART + QUOTES */}
+          <div className="flex flex-col gap-3 min-w-0">
             <div>
-              <div className="flex items-center justify-between mb-2">
-                <div>
-                  <div className="label">COMPARATIVE PRICE HISTORY • {rangePreset}</div>
-                  <div className="text-xl font-semibold tracking-[-0.5px]">BRIANSTOCKS WATCHLIST</div>
-                </div>
-                {/* Chart controls group (LINE/CANDLE, VOL, SMAs, NORMALIZE) — SPACEX chips + minimal toggles */}
-                <div className="flex items-center gap-2 flex-wrap justify-end">
-                  <div className="flex items-center gap-1" title="Chart type (CANDLE focuses primary ticker + volume)">
-                    {(['LINE', 'CANDLE'] as const).map((m) => {
-                      const val = m === 'LINE' ? 'line' : 'candle'
-                      return (
-                        <button
-                          key={m}
-                          onClick={() => setChartType(val)}
-                          className={`range-chip ${chartType === val ? 'active' : ''}`}
-                        >
-                          {m}
-                        </button>
-                      )
-                    })}
-                  </div>
-                  <button
-                    onClick={() => setShowVolume(!showVolume)}
-                    className={`btn text-xs flex items-center gap-1 ${showVolume ? 'border-[#67e8f9] text-[#67e8f9]' : ''}`}
-                    title="Toggle volume histogram (primary ticker)"
-                  >
-                    VOL
-                  </button>
-                  <div className="flex items-center gap-2 text-[10px] font-mono text-[#888] pl-1 border-l border-[#222]">
-                    <label className="flex items-center gap-1 cursor-pointer select-none" title="20-period SMA overlay">
-                      <input
-                        type="checkbox"
-                        checked={showSma20}
-                        onChange={(e) => setShowSma20(e.target.checked)}
-                        className="accent-[#67e8f9]"
-                      />
-                      <span>SMA20</span>
-                    </label>
-                    <label className="flex items-center gap-1 cursor-pointer select-none" title="50-period SMA overlay">
-                      <input
-                        type="checkbox"
-                        checked={showSma50}
-                        onChange={(e) => setShowSma50(e.target.checked)}
-                        className="accent-[#67e8f9]"
-                      />
-                      <span>SMA50</span>
-                    </label>
-                  </div>
-                  <button
-                    onClick={() => setNormalize(!normalize)}
-                    className={`btn text-xs flex items-center gap-1.5 ${normalize ? 'border-[#67e8f9] text-[#67e8f9]' : ''}`}
-                  >
-                    <TrendingUp size={14} /> {normalize ? 'NORMALIZED %' : 'ABSOLUTE PRICE'}
-                  </button>
-                </div>
+              <div className="mb-2">
+                <div className="label">COMPARATIVE PRICE HISTORY • {rangePreset}</div>
+                <div className="text-xl font-semibold tracking-[-0.5px]">BRIANSTOCKS WATCHLIST</div>
+                <ChartLegend
+                  tickers={selected}
+                  colors={TICKER_COLORS}
+                  primaryTicker={primaryTicker}
+                  chartType={chartType}
+                />
               </div>
 
-              <div className="chart-container p-2">
+              <ChartCommandBar
+                rangePreset={rangePreset}
+                ranges={RANGES}
+                onRangeChange={handleRange}
+                chartType={chartType}
+                onChartTypeChange={setChartType}
+                showVolume={showVolume}
+                onVolumeToggle={() => setShowVolume(!showVolume)}
+                showSma20={showSma20}
+                showSma50={showSma50}
+                onSmaToggle={(which, value) => {
+                  if (which === 'sma20') setShowSma20(value)
+                  else setShowSma50(value)
+                }}
+                normalize={normalize}
+                onNormalizeToggle={() => setNormalize(!normalize)}
+                selectedCount={selected.length}
+                onClear={() => {
+                  clear()
+                  toast.info('Watchlist cleared')
+                }}
+                dateRangeLabel={`${since} → ${until}`}
+              />
+
+              <div className="chart-container p-2 mt-2">
                 {hasData ? (
                   <PriceChart
                     series={series}
@@ -443,6 +377,7 @@ export default function BrianStocks() {
                     chartType={chartType}
                     showVolume={showVolume}
                     indicators={{ sma20: showSma20, sma50: showSma50 }}
+                    primaryTicker={primaryTicker}
                   />
                 ) : (
                   <div className="h-[420px] flex items-center justify-center text-[#555] text-sm font-mono tracking-widest">
@@ -455,24 +390,13 @@ export default function BrianStocks() {
               </div>
             </div>
 
-            {/* Mini quote cards */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
-              {selected.map((t) => {
-                const q = quotes[t]
-                return (
-                  <div key={t} className="card py-2.5 text-center">
-                    <div className="label tracking-widest">{t}</div>
-                    <div className="metric-lg font-mono mt-px">{q ? q.price.toFixed(2) : '—'}</div>
-                    {q && (
-                      <div className={q.change >= 0 ? 'delta-pos text-xs' : 'delta-neg text-xs'}>
-                        {q.change >= 0 ? '+' : ''}{q.change.toFixed(1)}%
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-              {selected.length === 0 && <div className="text-[#555] col-span-full text-xs">No tickers selected</div>}
-            </div>
+            <QuoteStrip
+              tickers={selected}
+              quotes={quotes}
+              colors={TICKER_COLORS}
+              loading={loading}
+              deltaLabel={finnhubToken ? 'DAY Δ%' : 'RANGE Δ%'}
+            />
           </div>
         </div>
 
@@ -574,35 +498,7 @@ export default function BrianStocks() {
         </div>
 
         {/* DENSE BOTTOM PANELS — SPACEX MISSION CONTROL */}
-        <div className="grid grid-cols-1 xl:grid-cols-4 gap-4">
-          {/* QUOTES TABLE */}
-          <div className="panel p-4">
-            <div className="section-title">LIVE QUOTES</div>
-            <table className="data">
-              <thead>
-                <tr><th>TICKER</th><th>LAST</th><th>Δ%</th></tr>
-              </thead>
-              <tbody>
-                {selected.map(t => {
-                  const q = quotes[t]
-                  return (
-                    <tr key={t}>
-                      <td className="font-bold font-mono tracking-widest">{t}</td>
-                      <td className="font-mono">{q ? q.price.toFixed(2) : '—'}</td>
-                      <td className={q && q.change >= 0 ? 'delta-pos' : 'delta-neg'}>
-                        {q ? `${q.change >= 0 ? '+' : ''}${q.change.toFixed(2)}%` : '—'}
-                      </td>
-                    </tr>
-                  )
-                })}
-                {selected.length === 0 && <tr><td colSpan={3} className="text-[#555]">— ADD TICKERS —</td></tr>}
-                {selected.length > 0 && Object.keys(quotes).length === 0 && !loading && (
-                  <tr><td colSpan={3} className="text-[#eab308] text-[10px]">YAHOO RATE LIMITED — RETAINING CACHED / STALE</td></tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
           {/* NEWS */}
           <div className="panel p-4">
             <div className="section-title">NEWS {finnhubToken ? '• MARKET PULSE' : '(ADD TOKEN)'}</div>
@@ -612,7 +508,11 @@ export default function BrianStocks() {
                   <div className="news-headline leading-tight">{n.headline || n.title}</div>
                   <div className="news-meta">
                     {n.source} • {n.ticker} • {n.datetime ? new Date(n.datetime * 1000).toLocaleDateString() : ''}
-                    {n.url && <span className="ml-2 text-[#67e8f9] cursor-pointer" onClick={() => window.open(n.url, '_blank')}>OPEN</span>}
+                    {n.url && (
+                      <a href={n.url} target="_blank" rel="noreferrer" className="ml-2 text-[#67e8f9]">
+                        OPEN
+                      </a>
+                    )}
                   </div>
                 </div>
               )) : (
@@ -643,23 +543,19 @@ export default function BrianStocks() {
             </div>
           </div>
 
-          {/* X TRENDING — made more "live" with fake trending scores + relative recency */}
+          {/* X SEARCH — honest links only, no fabricated scores */}
           <div className="panel p-4">
             <div className="section-title">TRENDING ON X</div>
             {selected.length > 0 && (
-              <div className="text-[9px] text-[#888] font-mono tracking-widest mb-1 flex items-center gap-3">
-                <span>LIVE • TREND SCORE {Math.min(99, 71 + selected.length * 3)} • AS OF {lastUpdateStr.split(' ')[0] || 'NOW'}</span>
-                <span className="text-[#67e8f9]">LIVE SEARCH</span>
+              <div className="text-[9px] text-[#888] font-mono tracking-widest mb-1">
+                X SEARCH • SINCE {since}
               </div>
             )}
             <div className="space-y-2 text-sm">
               {selected.length > 0 ? (
                 <>
                   {selected.slice(0, 4).map((t) => {
-                    const score = 74 + ((t.charCodeAt(0) + selected.length * 2) % 22)
-                    const rel = ((t.charCodeAt(1) || 65) % 7) + 1
-                    const ago = rel < 4 ? `${rel * 17 + 9}m ago` : `${Math.floor(rel / 2)}h ago`
-                    const perUrl = `https://x.com/search?q=%24${t}%20since%3A${since}&f=live`
+                    const perUrl = buildXSearchUrl([t], rangePreset, since)
                     return (
                       <a
                         key={t}
@@ -668,14 +564,13 @@ export default function BrianStocks() {
                         rel="noreferrer"
                         className="x-link flex justify-between items-baseline"
                       >
-                        <span>${t} LIVE SINCE {since.slice(5)} →</span>
-                        <span className="text-[9px] text-[#888] font-mono tabular-nums ml-2">SCORE {score} • {ago}</span>
+                        <span>${t} SINCE {since.slice(5)} →</span>
+                        <span className="text-[9px] text-[#67e8f9] font-mono tracking-widest ml-2">X SEARCH</span>
                       </a>
                     )
                   })}
                   {(() => {
-                    const allQuery = selected.map(s => '%24' + s).join('%20OR%20')
-                    const allUrl = `https://x.com/search?q=${allQuery}%20since%3A${since}&f=live`
+                    const allUrl = buildXSearchUrl(selected, rangePreset, since)
                     return (
                       <div className="flex items-center gap-2 pt-1">
                         <a
@@ -717,16 +612,22 @@ export default function BrianStocks() {
       {/* SETTINGS MODAL — SPACEX */}
       {showSettings && (
         <div className="fixed inset-0 z-[200] bg-black/90 flex items-center justify-center p-4" onClick={() => setShowSettings(false)}>
-          <div className="panel w-full max-w-[420px] p-6" onClick={e => e.stopPropagation()}>
+          <div
+            className="panel w-full max-w-[420px] p-6"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="settings-dialog-title"
+            onClick={e => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between mb-5">
-              <div className="section-title mb-0 tracking-[3px]">SETTINGS</div>
-              <button onClick={() => setShowSettings(false)}><X size={18} /></button>
+              <div id="settings-dialog-title" className="section-title mb-0 tracking-[3px]">SETTINGS</div>
+              <button onClick={() => setShowSettings(false)} aria-label="Close settings"><X size={18} /></button>
             </div>
 
             <div className="space-y-5 text-sm">
               <div>
                 <div className="label mb-1 tracking-[2px]">FINNHUB TOKEN (FREE — 60 CALLS/MIN)</div>
-                {(import.meta as any).env?.VITE_FINNHUB_TOKEN && (
+                {import.meta.env.VITE_FINNHUB_TOKEN && (
                   <div className="inline-flex items-center gap-1 text-[10px] text-[#22c55e] mb-1 px-1.5 py-0.5 bg-[#052e16] border border-[#166534] rounded">
                     ✓ Using key from Vercel environment (VITE_FINNHUB_TOKEN)
                   </div>
@@ -762,10 +663,16 @@ export default function BrianStocks() {
       {/* HELP OVERLAY — triggered by ? key */}
       {showHelp && (
         <div className="fixed inset-0 z-[200] bg-black/90 flex items-center justify-center p-4" onClick={() => setShowHelp(false)}>
-          <div className="panel w-full max-w-[480px] p-6" onClick={e => e.stopPropagation()}>
+          <div
+            className="panel w-full max-w-[480px] p-6"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="help-dialog-title"
+            onClick={e => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between mb-5">
-              <div className="section-title mb-0 tracking-[3px]">KEYBOARD MISSION CONTROLS</div>
-              <button onClick={() => setShowHelp(false)}><X size={18} /></button>
+              <div id="help-dialog-title" className="section-title mb-0 tracking-[3px]">KEYBOARD MISSION CONTROLS</div>
+              <button onClick={() => setShowHelp(false)} aria-label="Close help"><X size={18} /></button>
             </div>
             <div className="space-y-3 text-sm font-mono">
               <div className="grid grid-cols-[auto,1fr] gap-x-6 gap-y-1.5 text-xs">
