@@ -201,7 +201,7 @@ export default function BrianStocks() {
     }
   }
 
-  const hasData = Object.keys(series).length > 0
+  const hasData = selected.some((t) => (series[t]?.length ?? 0) > 0)
 
   return (
     <div className="min-h-screen bg-[#000000] text-white flex flex-col">

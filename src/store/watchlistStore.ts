@@ -49,6 +49,8 @@ interface WatchlistState {
 }
 
 let yahooFetchDebounce: ReturnType<typeof setTimeout> | null = null
+let activeFetchId = 0
+
 function scheduleYahooFetch(getter: () => WatchlistState) {
   if (yahooFetchDebounce) clearTimeout(yahooFetchDebounce)
   yahooFetchDebounce = setTimeout(() => {
@@ -57,6 +59,37 @@ function scheduleYahooFetch(getter: () => WatchlistState) {
       state.fetchAll()
     }
   }, 300)
+}
+
+async function fetchSeriesForSymbol(
+  symbol: string,
+  period1: number,
+  period2: number,
+  finnhubToken: string
+): Promise<{ points: PricePoint[]; quote: Quote | null; ok: boolean }> {
+  if (finnhubToken) {
+    try {
+      const points = await fetchCandle(symbol, period1, period2, finnhubToken)
+      if (points.length > 0) {
+        const last = points[points.length - 1]?.value
+        return {
+          points,
+          quote: last ? { price: last, change: 0 } : null,
+          ok: true,
+        }
+      }
+    } catch {
+      console.warn('Finnhub candle failed for', symbol, '— falling back to Yahoo')
+    }
+  }
+
+  try {
+    const { points, quote } = await fetchYahooChart(symbol, period1, period2)
+    return { points, quote, ok: points.length > 0 }
+  } catch {
+    console.warn('Yahoo fetch failed for', symbol)
+    return { points: [], quote: null, ok: false }
+  }
 }
 
 function getInitialFinnhubToken(): string {
@@ -94,7 +127,13 @@ export const useWatchlistStore = create<WatchlistState>()(
         const { selected } = get()
         if (selected.includes(t) || selected.length >= 10) return
         set({ selected: [...selected, t] })
-        scheduleYahooFetch(get)
+        // Fetch immediately for new tickers so chart updates without waiting on debounce
+        const needsData = !get().series[t]?.length
+        if (needsData) {
+          get().fetchAll()
+        } else {
+          scheduleYahooFetch(get)
+        }
       },
 
       removeTicker: (ticker) => {
@@ -162,8 +201,9 @@ export const useWatchlistStore = create<WatchlistState>()(
         const { selected, rangePreset, finnhubToken } = get()
         if (selected.length === 0) return
 
-        const generation = get().fetchGeneration + 1
-        set({ loading: true, fetchGeneration: generation })
+        const fetchId = ++activeFetchId
+        const generation = get().fetchGeneration
+        set({ loading: true })
 
         const { from, to } = getRangeDates(rangePreset)
         const period1 = Math.floor(from.getTime() / 1000)
@@ -182,141 +222,120 @@ export const useWatchlistStore = create<WatchlistState>()(
         let fetchedEarnings: EarningItem[] = existingEarnings
         let anySuccess = false
 
-        if (finnhubToken) {
-          const candleResults = await batchFetch(
+        try {
+          const seriesResults = await batchFetch(
             selected,
             async (symbol) => {
-              try {
-                const points = await fetchCandle(symbol, period1, period2, finnhubToken)
-                return { symbol, points, ok: points.length > 0 }
-              } catch {
-                console.warn('Finnhub candle failed for', symbol)
-                return { symbol, points: [] as PricePoint[], ok: false }
-              }
+              const result = await fetchSeriesForSymbol(symbol, period1, period2, finnhubToken)
+              return { symbol, ...result }
             },
             5
           )
 
-          for (const { symbol, points, ok } of candleResults) {
-            if (ok) {
-              mergedSeries[symbol] = points
-              anySuccess = true
-              const last = points[points.length - 1]?.value
-              if (last) mergedQuotes[symbol] = { price: last, change: 0 }
-            }
-          }
-
-          const quoteResults = await batchFetch(
-            selected,
-            async (symbol) => {
-              try {
-                const quote = await fetchQuote(symbol, finnhubToken)
-                return { symbol, quote, ok: quote != null }
-              } catch {
-                console.warn('Finnhub current quote failed for', symbol)
-                return { symbol, quote: null, ok: false }
-              }
-            },
-            5
-          )
-
-          for (const { symbol, quote, ok } of quoteResults) {
-            if (ok && quote) {
-              mergedQuotes[symbol] = quote
-              anySuccess = true
-            }
-          }
-        } else {
-          const yahooResults = await Promise.all(
-            selected.map(async (symbol) => {
-              try {
-                const { points, quote } = await fetchYahooChart(symbol, period1, period2)
-                return { symbol, points, quote, ok: points.length > 0 }
-              } catch {
-                console.warn('Yahoo fetch failed for', symbol)
-                return { symbol, points: [] as PricePoint[], quote: null, ok: false }
-              }
-            })
-          )
-
-          for (const { symbol, points, quote, ok } of yahooResults) {
+          for (const { symbol, points, quote, ok } of seriesResults) {
             if (ok) {
               mergedSeries[symbol] = points
               anySuccess = true
               if (quote) mergedQuotes[symbol] = quote
             }
           }
-        }
 
-        if (finnhubToken) {
-          const today = format(new Date(), 'yyyy-MM-dd')
-          const fromStr = format(from, 'yyyy-MM-dd')
+          if (finnhubToken) {
+            const quoteResults = await batchFetch(
+              selected,
+              async (symbol) => {
+                try {
+                  const quote = await fetchQuote(symbol, finnhubToken)
+                  return { symbol, quote, ok: quote != null }
+                } catch {
+                  console.warn('Finnhub current quote failed for', symbol)
+                  return { symbol, quote: null, ok: false }
+                }
+              },
+              5
+            )
 
-          const newsResults = await batchFetch(
-            selected,
-            async (symbol) => {
-              try {
-                const [news, earnings] = await Promise.all([
-                  fetchCompanyNews(symbol, fromStr, today, finnhubToken),
-                  fetchEarnings(symbol, finnhubToken),
-                ])
-                return { news, earnings, ok: true }
-              } catch {
-                console.warn('Finnhub failed', symbol)
-                return { news: [] as NewsItem[], earnings: [] as EarningItem[], ok: false }
+            for (const { symbol, quote, ok } of quoteResults) {
+              if (ok && quote) {
+                mergedQuotes[symbol] = quote
+                anySuccess = true
               }
-            },
-            5
-          )
-
-          const newsLocal: NewsItem[] = []
-          const earningsLocal: EarningItem[] = []
-          let newsSuccess = false
-
-          for (const { news, earnings, ok } of newsResults) {
-            if (ok) {
-              newsLocal.push(...news)
-              earningsLocal.push(...earnings)
-              newsSuccess = true
             }
           }
 
-          try {
-            const marketNews = await fetchMarketNews(finnhubToken)
-            if (marketNews.length > 0) {
-              fetchedMarketNews = marketNews
-              newsSuccess = true
+          if (finnhubToken) {
+            const today = format(new Date(), 'yyyy-MM-dd')
+            const fromStr = format(from, 'yyyy-MM-dd')
+
+            const newsResults = await batchFetch(
+              selected,
+              async (symbol) => {
+                try {
+                  const [news, earnings] = await Promise.all([
+                    fetchCompanyNews(symbol, fromStr, today, finnhubToken),
+                    fetchEarnings(symbol, finnhubToken),
+                  ])
+                  return { news, earnings, ok: true }
+                } catch {
+                  console.warn('Finnhub failed', symbol)
+                  return { news: [] as NewsItem[], earnings: [] as EarningItem[], ok: false }
+                }
+              },
+              5
+            )
+
+            const newsLocal: NewsItem[] = []
+            const earningsLocal: EarningItem[] = []
+            let newsSuccess = false
+
+            for (const { news, earnings, ok } of newsResults) {
+              if (ok) {
+                newsLocal.push(...news)
+                earningsLocal.push(...earnings)
+                newsSuccess = true
+              }
             }
-          } catch {
-            console.warn('Finnhub market news failed')
+
+            try {
+              const marketNews = await fetchMarketNews(finnhubToken)
+              if (marketNews.length > 0) {
+                fetchedMarketNews = marketNews
+                newsSuccess = true
+              }
+            } catch {
+              console.warn('Finnhub market news failed')
+            }
+
+            if (newsSuccess) {
+              fetchedNews = newsLocal.slice(0, 12)
+              fetchedEarnings = earningsLocal
+              anySuccess = true
+            }
           }
 
-          if (newsSuccess) {
-            fetchedNews = newsLocal.slice(0, 12)
-            fetchedEarnings = earningsLocal
-            anySuccess = true
+          if (get().fetchGeneration !== generation || fetchId !== activeFetchId) return
+
+          const selectedSet = new Set(selected)
+          for (const key of Object.keys(mergedSeries)) {
+            if (!selectedSet.has(key)) delete mergedSeries[key]
+          }
+          for (const key of Object.keys(mergedQuotes)) {
+            if (!selectedSet.has(key)) delete mergedQuotes[key]
+          }
+
+          set({
+            series: mergedSeries,
+            quotes: mergedQuotes,
+            news: fetchedNews,
+            marketNews: fetchedMarketNews,
+            earnings: fetchedEarnings,
+            ...(anySuccess ? { lastUpdated: Date.now() } : {}),
+          })
+        } finally {
+          if (fetchId === activeFetchId) {
+            set({ loading: false })
           }
         }
-
-        if (get().fetchGeneration !== generation) return
-
-        const selectedSet = new Set(selected)
-        for (const key of Object.keys(mergedSeries)) {
-          if (!selectedSet.has(key)) delete mergedSeries[key]
-        }
-        for (const key of Object.keys(mergedQuotes)) {
-          if (!selectedSet.has(key)) delete mergedQuotes[key]
-        }
-
-        set({
-          series: mergedSeries,
-          quotes: mergedQuotes,
-          news: fetchedNews,
-          marketNews: fetchedMarketNews,
-          earnings: fetchedEarnings,
-          loading: false,
-          ...(anySuccess ? { lastUpdated: Date.now() } : {}),
-        })
       },
     }),
     {
