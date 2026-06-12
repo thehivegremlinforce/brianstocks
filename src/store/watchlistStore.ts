@@ -215,7 +215,25 @@ export const useWatchlistStore = create<WatchlistState>()(
           })
         )
 
-        // 2. Finnhub (optional)
+        // 1b. Current live quotes from Finnhub (preferred when token present for reliable current price + daily change)
+        if (finnhubToken) {
+          await Promise.all(
+            selected.map(async (symbol) => {
+              try {
+                const url = `https://finnhub.io/api/v1/quote?symbol=${symbol}&token=${finnhubToken}`
+                const res = await fetch(url)
+                const q = await res.json()
+                if (q && typeof q.c === 'number') {
+                  newQuotes[symbol] = { price: q.c, change: q.dp || 0 }
+                }
+              } catch {
+                console.warn('Finnhub current quote failed for', symbol)
+              }
+            })
+          )
+        }
+
+        // 2. Finnhub (optional) for news/earnings/market news
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         let fetchedNews: any[] = []
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
