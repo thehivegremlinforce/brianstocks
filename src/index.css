@@ -399,10 +399,12 @@ table.data tr:last-child td {
   gap: 6px;
 }
 .chart-legend__swatch {
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 12px;
   border-radius: 1px;
   flex-shrink: 0;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  box-shadow: 0 0 6px currentColor;
 }
 .chart-legend__label {
   font-weight: 700;
@@ -485,9 +487,10 @@ table.data tr:last-child td {
   margin-bottom: 2px;
 }
 .quote-strip__swatch {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
   border-radius: 1px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
   flex-shrink: 0;
 }
 .quote-strip__ticker {

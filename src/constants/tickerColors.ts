@@ -1,76 +1,43 @@
-/** Distinct colors readable on #0a0a0a chart background */
-const PALETTE = [
-  '#67e8f9', // cyan
-  '#a3e635', // lime
-  '#f472b6', // pink
-  '#60a5fa', // blue
-  '#fbbf24', // amber
-  '#c084fc', // purple
-  '#4ade80', // green
-  '#f87171', // red
-  '#fb923c', // orange
-  '#e879f9', // fuchsia
-  '#2dd4bf', // teal
-  '#a78bfa', // violet
-  '#facc15', // yellow
-  '#38bdf8', // sky
-  '#fb7185', // rose
-] as const
+/**
+ * High-contrast colors for comparative charts on #0a0a0a.
+ * Uses golden-angle hue spacing so adjacent watchlist tickers are maximally distinct.
+ */
 
-export const TICKER_COLORS: Record<string, string> = {
-  NVDA: '#67e8f9',
-  AAPL: '#a3e635',
-  TSLA: '#f472b6',
-  META: '#60a5fa',
-  AMZN: '#fbbf24',
-  GOOGL: '#c084fc',
-  MSFT: '#4ade80',
-  AMD: '#f87171',
-  AVGO: '#38bdf8',
-  SMCI: '#fb923c',
-  CRM: '#e879f9',
-  SPY: '#facc15',
-  QQQ: '#2dd4bf',
-  INTC: '#a78bfa',
+/** lightweight-charts lineStyle: 0=solid, 1=dotted, 2=dashed, 3=large dashed */
+export const LINE_STYLES = [0, 2, 1, 3, 2, 0, 1, 3, 2, 1] as const
+
+export function colorFromIndex(index: number): string {
+  const hue = (index * 137.508) % 360
+  // Alternate lightness so neighbors differ in brightness too
+  const lightness = index % 3 === 0 ? 68 : index % 3 === 1 ? 58 : 48
+  const saturation = index % 2 === 0 ? 95 : 82
+  return `hsl(${hue.toFixed(1)}, ${saturation}%, ${lightness}%)`
 }
 
-function hashTicker(ticker: string): number {
-  const t = ticker.toUpperCase()
-  let h = 0
-  for (let i = 0; i < t.length; i++) {
-    h = (h * 31 + t.charCodeAt(i)) >>> 0
-  }
-  return h
+export function lineStyleFromIndex(index: number): number {
+  return LINE_STYLES[index % LINE_STYLES.length]
 }
 
-export function getTickerColor(ticker: string): string {
-  const key = ticker.toUpperCase()
-  if (TICKER_COLORS[key]) return TICKER_COLORS[key]
-  return PALETTE[hashTicker(key) % PALETTE.length]
-}
-
-/** Stable colors for an ordered watchlist — avoids hash collisions within one session */
+/** Assign colors strictly by watchlist position — best for side-by-side comparison */
 export function getWatchlistColors(tickers: string[]): Record<string, string> {
-  const used = new Set<string>()
   const out: Record<string, string> = {}
-
-  for (const ticker of tickers) {
-    const key = ticker.toUpperCase()
-    let color = TICKER_COLORS[key]
-    if (!color || used.has(color)) {
-      const start = hashTicker(key) % PALETTE.length
-      for (let i = 0; i < PALETTE.length; i++) {
-        const candidate = PALETTE[(start + i) % PALETTE.length]
-        if (!used.has(candidate)) {
-          color = candidate
-          break
-        }
-      }
-      color = color ?? PALETTE[start]
-    }
-    used.add(color)
-    out[key] = color
-  }
-
+  tickers.forEach((ticker, index) => {
+    out[ticker.toUpperCase()] = colorFromIndex(index)
+  })
   return out
+}
+
+export function getWatchlistLineStyles(tickers: string[]): Record<string, number> {
+  const out: Record<string, number> = {}
+  tickers.forEach((ticker, index) => {
+    out[ticker.toUpperCase()] = lineStyleFromIndex(index)
+  })
+  return out
+}
+
+/** @deprecated Use getWatchlistColors — kept for any external imports */
+export const TICKER_COLORS: Record<string, string> = {}
+
+export function getTickerColor(_ticker: string, index = 0): string {
+  return colorFromIndex(index)
 }

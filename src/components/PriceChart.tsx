@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import * as LightweightCharts from 'lightweight-charts'
 import type { PricePoint } from '../types/market'
-import { getWatchlistColors } from '../constants/tickerColors'
+import { getWatchlistColors, getWatchlistLineStyles } from '../constants/tickerColors'
 
 interface Props {
   series: Record<string, PricePoint[]>
@@ -76,7 +76,9 @@ export function PriceChart(props: Props) {
     chartRef.current = chart
 
     const tickers = Object.keys(series).filter((t) => (series[t]?.length ?? 0) > 0)
-    const colorMap = getWatchlistColors(watchlistOrder ?? tickers)
+    const order = watchlistOrder ?? tickers
+    const colorMap = getWatchlistColors(order)
+    const lineStyleMap = getWatchlistLineStyles(order)
     if (tickers.length === 0) {
       chart.timeScale().fitContent()
     }
@@ -92,6 +94,10 @@ export function PriceChart(props: Props) {
       const points = series[ticker] || []
       if (points.length === 0) return
 
+      const key = ticker.toUpperCase()
+      const color = colorMap[key] ?? colorMap[ticker]
+      const lineStyle = lineStyleMap[key] ?? 0
+
       // Raw closes for indicators (always compute on actual closes)
       const rawCloses = points.map(p => ({ time: p.time, value: p.value }))
 
@@ -104,8 +110,6 @@ export function PriceChart(props: Props) {
         base = data[0].value
         data = data.map(d => ({ ...d, value: (d.value / base) * 100 }))
       }
-
-      const color = colorMap[ticker.toUpperCase()] ?? colorMap[ticker]
 
       if (isCandle) {
         // Use rich OHLC from store (already populated). Note: close is .value
@@ -135,7 +139,8 @@ export function PriceChart(props: Props) {
         // LINE mode
         const line = chart.addSeries(LightweightCharts.LineSeries, {
           color,
-          lineWidth: 2,
+          lineWidth: 3,
+          lineStyle,
           priceLineVisible: false,
           lastValueVisible: true,
         })
