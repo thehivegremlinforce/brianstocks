@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { createChart, ColorType, LineSeries } from 'lightweight-charts'
+import * as LightweightCharts from 'lightweight-charts'
 import type { PricePoint } from '../store/watchlistStore'
 
 interface Props {
@@ -25,19 +25,13 @@ const TICKER_COLORS: Record<string, string> = {
   SMCI: '#fb923c',
 }
 
-export function PriceChart({
-  series,
-  normalize = false,
-  height = 420,
-  chartType: _chartType = 'line',
-  showVolume: _showVolume = true,
-  indicators: _indicators = {},
-}: Props) {
+export function PriceChart(props: Props) {
+  const { series, normalize = false, height = 420, chartType = 'line', showVolume = true, indicators = {} } = props
   const containerRef = useRef<HTMLDivElement>(null)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const chartRef = useRef<any>(null)
 
-  // Minimal SMA computation (client-side from closes)
+  // Minimal SMA computation (client-side from closes) — for indicators feature
   function calculateSMA(points: { time: number; value: number }[], period: number): { time: number; value: number }[] {
     const result: { time: number; value: number }[] = []
     for (let i = 0; i < points.length; i++) {
@@ -55,11 +49,11 @@ export function PriceChart({
     if (!containerRef.current) return
 
     const container = containerRef.current
-    const chart = createChart(container, {
+    const chart = LightweightCharts.createChart(container, {
       width: container.clientWidth,
       height,
       layout: {
-        background: { type: ColorType.Solid, color: '#0a0a0a' },
+        background: { type: LightweightCharts.ColorType.Solid, color: '#0a0a0a' },
         textColor: '#888888',
       },
       grid: {
@@ -83,29 +77,140 @@ export function PriceChart({
     chartRef.current = chart
 
     const tickers = Object.keys(series)
+    if (tickers.length === 0) {
+      chart.timeScale().fitContent()
+    }
 
-    tickers.forEach((ticker) => {
+    const isCandle = chartType === 'candle'
+    // For candle + volume: always focus primary ticker (first key) for UX clarity with multi-series
+    const primaryTicker = tickers[0]
+    const displayTickers = isCandle && primaryTicker ? [primaryTicker] : tickers
+
+    displayTickers.forEach((ticker) => {
       const points = series[ticker] || []
       if (points.length === 0) return
 
-      let data = points.map(p => ({ time: p.time as any, value: p.value })) // eslint-disable-line @typescript-eslint/no-explicit-any
+      // Raw closes for indicators (always compute on actual closes)
+      const rawCloses = points.map(p => ({ time: p.time, value: p.value }))
 
-      if (normalize && data.length > 0) {
-        const base = data[0].value
+      // Display data (apply normalize only for line mode; candles always raw absolute)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let data = points.map(p => ({ time: p.time as any, value: p.value }))
+      let base = 1
+      const canNormalize = !isCandle && normalize && data.length > 0
+      if (canNormalize) {
+        base = data[0].value
         data = data.map(d => ({ ...d, value: (d.value / base) * 100 }))
       }
 
       const color = TICKER_COLORS[ticker] || '#67e8f9'
 
-      const line = chart.addSeries(LineSeries, {
-        color,
-        lineWidth: 2,
-        priceLineVisible: false,
-        lastValueVisible: true,
-      })
-      line.setData(data)
+      if (isCandle) {
+        // Use rich OHLC from store (already populated). Note: close is .value
+        const candleData = points
+          .filter(p => p.open != null && p.high != null && p.low != null)
+          .map(p => ({
+            time: p.time as any, // eslint-disable-line @typescript-eslint/no-explicit-any
+            open: p.open!,
+            high: p.high!,
+            low: p.low!,
+            close: p.value,
+          }))
+        if (candleData.length > 0) {
+          const candle = chart.addSeries(LightweightCharts.CandlestickSeries, {
+            upColor: '#67e8f9',
+            downColor: '#f472b6',
+            borderUpColor: '#67e8f9',
+            borderDownColor: '#f472b6',
+            wickUpColor: '#67e8f9',
+            wickDownColor: '#f472b6',
+            priceLineVisible: false,
+            lastValueVisible: true,
+          })
+          candle.setData(candleData)
+        }
+      } else {
+        // LINE mode
+        const line = chart.addSeries(LightweightCharts.LineSeries, {
+          color,
+          lineWidth: 2,
+          priceLineVisible: false,
+          lastValueVisible: true,
+        })
+        line.setData(data)
+      }
+
+      // Indicators: SMA 20 / 50 — only rendered for displayed tickers (primary when candle)
+      const show20 = !!indicators.sma20
+      const show50 = !!indicators.sma50
+      if (show20 || show50) {
+        const smaColor = color
+        if (show20) {
+          const sma20Raw = calculateSMA(rawCloses, 20)
+          const sma20Disp = sma20Raw.map((d: { time: number; value: number }) => ({ time: d.time as any, value: canNormalize ? (d.value / base) * 100 : d.value })) // eslint-disable-line @typescript-eslint/no-explicit-any
+          if (sma20Disp.length > 0) {
+            const sma20 = chart.addSeries(LightweightCharts.LineSeries, {
+              color: smaColor,
+              lineWidth: 1,
+              lineStyle: 2, // dashed
+              priceLineVisible: false,
+              lastValueVisible: false,
+            })
+            sma20.setData(sma20Disp)
+          }
+        }
+        if (show50) {
+          const sma50Raw = calculateSMA(rawCloses, 50)
+          const sma50Disp = sma50Raw.map((d: { time: number; value: number }) => ({ time: d.time as any, value: canNormalize ? (d.value / base) * 100 : d.value })) // eslint-disable-line @typescript-eslint/no-explicit-any
+          if (sma50Disp.length > 0) {
+            const sma50 = chart.addSeries(LightweightCharts.LineSeries, {
+              color: smaColor,
+              lineWidth: 1,
+              lineStyle: 2, // dashed
+              priceLineVisible: false,
+              lastValueVisible: false,
+            })
+            sma50.setData(sma50Disp)
+          }
+        }
+      }
     })
 
+    // Volume histogram (pane 1) — primary ticker only for sensible UX (even in line+multi)
+    if (showVolume && primaryTicker) {
+      const points = series[primaryTicker] || []
+      const volData = points
+        .filter(p => p.volume != null && p.volume > 0)
+        .map((p, idx, arr) => {
+          // Color volume bars by direction vs prev close (.value) (subtle telemetry)
+          const barColor = (idx > 0 && arr[idx - 1].value != null)
+            ? ((p.value >= arr[idx - 1].value) ? '#475569' : '#3f2a2a')
+            : '#475569'
+          return { time: p.time as any, value: p.volume!, color: barColor } // eslint-disable-line @typescript-eslint/no-explicit-any
+        })
+      if (volData.length > 0) {
+        const volSeries = chart.addSeries(
+          LightweightCharts.HistogramSeries,
+          {
+            color: '#555555',
+            priceFormat: { type: 'volume' },
+            priceLineVisible: false,
+            lastValueVisible: false,
+          },
+          1 // paneIndex for bottom volume pane
+        )
+        volSeries.setData(volData)
+      }
+    }
+
+    // Adjust pane heights for volume (stretch favors small bottom vol pane)
+    const panes = chart.panes()
+    if (showVolume && panes.length > 1) {
+      panes[0]?.setStretchFactor(1.0)
+      panes[1]?.setStretchFactor(0.28)
+    }
+
+    // fit content
     chart.timeScale().fitContent()
 
     const handleResize = () => {
@@ -119,7 +224,7 @@ export function PriceChart({
       window.removeEventListener('resize', handleResize)
       chart.remove()
     }
-  }, [series, normalize, height])
+  }, [series, normalize, height, chartType, showVolume, indicators])
 
   return (
     <div
