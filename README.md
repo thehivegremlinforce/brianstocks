@@ -78,14 +78,45 @@ Prices always work without a token. The token is stored only in your browser.
 - News & earnings: Finnhub (free tier, 60 calls/min — generous for personal use)
 - X activity: direct deep links (no API key needed)
 
-## Build & deploy
+## Deploy to Vercel (free plan, via GitHub — recommended)
 
+Vercel has excellent zero-config support for Vite projects and the Hobby (free) tier is perfect for this personal dashboard.
+
+1. Make sure your code is pushed to GitHub (this repo).
+2. Go to [vercel.com/new](https://vercel.com/new) and import the GitHub repository `thehivegremlinforce/brianstocks`.
+3. Vercel will auto-detect it as a **Vite** project:
+   - Build Command: `npm run build`
+   - Output Directory: `dist`
+   - No extra environment variables needed (all data fetching is client-side; your Finnhub token stays in your browser's localStorage).
+4. Click Deploy.
+
+After the first deploy:
+- Every push to `main` (or your default branch) will automatically trigger a new production deployment.
+- Pull requests get preview deployments for free.
+- Your site will be at something like `https://brianstocks-xxx.vercel.app`.
+
+### Why this works great on free Vercel
+- Pure static SPA — no serverless functions or backend required.
+- All API calls (Yahoo Finance public endpoint + optional Finnhub) happen directly from the user's browser.
+- No secrets or server env vars needed.
+- The `vercel.json` in the repo provides explicit hints + SPA fallback (future-proof if you ever add client-side routing).
+
+### Manual / alternative deploys
 ```bash
 npm run build
 npm run preview
 ```
 
-Deploy the `dist/` folder anywhere (Vercel, Netlify, Cloudflare Pages, GitHub Pages, etc.). Static site only — works great.
+You can also drag the `dist/` folder to Vercel, Netlify, Cloudflare Pages, GitHub Pages, etc. — it is a standard static site.
+
+## Tech
+- Vite + React 19 + TypeScript
+- Tailwind v4 + custom SPACEX CSS variables
+- Zustand + persist (watchlist + token)
+- lightweight-charts (TradingView)
+- date-fns, lucide-react, framer-motion, sonner
+
+Built following the exact patterns from the user's other projects (AI Simulator, arcworld) but with a strict SpaceX telemetry aesthetic.
 
 ## Tech
 - Vite + React 19 + TypeScript
