@@ -349,6 +349,13 @@ export const useWatchlistStore = create<WatchlistState>()(
         quotes: s.quotes,
         lastUpdated: s.lastUpdated,
       }),
+      onRehydrateStorage: () => (state) => {
+        if (!state?.selected?.length) return
+        const needsFetch = state.selected.some((t) => !(state.series?.[t]?.length))
+        if (needsFetch) {
+          queueMicrotask(() => useWatchlistStore.getState().fetchAll())
+        }
+      },
     }
   )
 )

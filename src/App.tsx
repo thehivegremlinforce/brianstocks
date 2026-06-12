@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { Plus, X, Settings, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
 import { useWatchlistStore, type RangePreset } from './store/watchlistStore'
@@ -201,6 +201,14 @@ export default function BrianStocks() {
     }
   }
 
+  const chartSeries = useMemo(() => {
+    const out: Record<string, typeof series[string]> = {}
+    for (const t of selected) {
+      if (series[t]?.length) out[t] = series[t]
+    }
+    return out
+  }, [selected, series])
+
   const hasData = selected.some((t) => (series[t]?.length ?? 0) > 0)
 
   return (
@@ -371,7 +379,7 @@ export default function BrianStocks() {
               <div className="chart-container p-2 mt-2">
                 {hasData ? (
                   <PriceChart
-                    series={series}
+                    series={chartSeries}
                     normalize={normalize}
                     height={420}
                     chartType={chartType}
@@ -381,7 +389,11 @@ export default function BrianStocks() {
                   />
                 ) : (
                   <div className="h-[420px] flex items-center justify-center text-[#555] text-sm font-mono tracking-widest">
-                    {loading ? 'FETCHING DATA FROM YAHOO…' : 'ADD TICKERS TO LOAD CHART'}
+                    {loading
+                      ? 'FETCHING DATA FROM YAHOO…'
+                      : selected.length > 0
+                        ? 'NO PRICE DATA — PRESS REFRESH (R)'
+                        : 'ADD TICKERS TO LOAD CHART'}
                   </div>
                 )}
               </div>

@@ -45,8 +45,9 @@ export function PriceChart(props: Props) {
     if (!containerRef.current) return
 
     const container = containerRef.current
+    const initialWidth = Math.max(container.clientWidth, container.offsetWidth, 320)
     const chart = LightweightCharts.createChart(container, {
-      width: container.clientWidth,
+      width: initialWidth,
       height,
       layout: {
         background: { type: LightweightCharts.ColorType.Solid, color: '#0a0a0a' },
@@ -72,7 +73,7 @@ export function PriceChart(props: Props) {
 
     chartRef.current = chart
 
-    const tickers = Object.keys(series)
+    const tickers = Object.keys(series).filter((t) => (series[t]?.length ?? 0) > 0)
     if (tickers.length === 0) {
       chart.timeScale().fitContent()
     }
@@ -212,13 +213,18 @@ export function PriceChart(props: Props) {
     chart.timeScale().fitContent()
 
     const handleResize = () => {
-      if (containerRef.current) {
-        chart.resize(containerRef.current.clientWidth, height)
-      }
+      if (!containerRef.current) return
+      const w = containerRef.current.clientWidth
+      if (w > 0) chart.resize(w, height)
     }
+
+    handleResize()
+    const resizeObserver = new ResizeObserver(handleResize)
+    resizeObserver.observe(container)
     window.addEventListener('resize', handleResize)
 
     return () => {
+      resizeObserver.disconnect()
       window.removeEventListener('resize', handleResize)
       chart.remove()
     }

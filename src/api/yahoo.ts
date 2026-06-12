@@ -6,18 +6,7 @@ interface YahooChartResponse {
   }
 }
 
-export async function fetchYahooChart(
-  symbol: string,
-  period1: number,
-  period2: number
-): Promise<{ points: PricePoint[]; quote: Quote | null }> {
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?period1=${period1}&period2=${period2}&interval=1d&indicators=quote&includeTimestamps=true`
-  const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } })
-  if (!res.ok) {
-    throw new Error(`Yahoo chart fetch failed for ${symbol}: ${res.status}`)
-  }
-
-  const json = (await res.json()) as YahooChartResponse
+function parseYahooChartJson(json: YahooChartResponse): { points: PricePoint[]; quote: Quote | null } {
   const result = json?.chart?.result?.[0]
   if (!result) {
     return { points: [], quote: null }
@@ -56,4 +45,39 @@ export async function fetchYahooChart(
     : null
 
   return { points, quote }
+}
+
+async function fetchYahooChartRaw(
+  symbol: string,
+  period1: number,
+  period2: number,
+  viaProxy: boolean
+): Promise<YahooChartResponse> {
+  const qs = `period1=${period1}&period2=${period2}&interval=1d&indicators=quote&includeTimestamps=true`
+  const url = viaProxy
+    ? `/api/yahoo-chart?symbol=${encodeURIComponent(symbol)}&${qs}`
+    : `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?${qs}`
+
+  const res = await fetch(url, viaProxy ? undefined : { headers: { 'User-Agent': 'Mozilla/5.0' } })
+  if (!res.ok) {
+    throw new Error(`Yahoo chart fetch failed for ${symbol}: ${res.status}`)
+  }
+  return (await res.json()) as YahooChartResponse
+}
+
+export async function fetchYahooChart(
+  symbol: string,
+  period1: number,
+  period2: number
+): Promise<{ points: PricePoint[]; quote: Quote | null }> {
+  try {
+    const json = await fetchYahooChartRaw(symbol, period1, period2, false)
+    const parsed = parseYahooChartJson(json)
+    if (parsed.points.length > 0) return parsed
+  } catch {
+    console.warn('Direct Yahoo fetch failed for', symbol, '— trying proxy')
+  }
+
+  const json = await fetchYahooChartRaw(symbol, period1, period2, true)
+  return parseYahooChartJson(json)
 }
