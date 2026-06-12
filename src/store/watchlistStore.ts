@@ -172,56 +172,89 @@ export const useWatchlistStore = create<WatchlistState>()(
         const period1 = Math.floor(from.getTime() / 1000)
         const period2 = Math.floor(to.getTime() / 1000)
 
-        // 1. Yahoo prices (always works, no key)
         const newSeries: Record<string, PricePoint[]> = {}
         const newQuotes: Record<string, { price: number; change: number }> = {}
 
-        await Promise.all(
-          selected.map(async (symbol) => {
-            try {
-              const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?period1=${period1}&period2=${period2}&interval=1d&indicators=quote&includeTimestamps=true`
-              const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } })
-              const json = await res.json()
-              const result = json?.chart?.result?.[0]
-              if (!result) return
+        if (finnhubToken) {
+          // Use Finnhub candles for historical series when key present (more reliable than Yahoo for chart data + full OHLCV)
+          await Promise.all(
+            selected.map(async (symbol) => {
+              try {
+                const url = `https://finnhub.io/api/v1/stock/candle?symbol=${symbol}&resolution=D&from=${period1}&to=${period2}&token=${finnhubToken}`
+                const res = await fetch(url)
+                const data = await res.json()
+                if (data && data.s === 'ok' && Array.isArray(data.t)) {
+                  const points: PricePoint[] = []
+                  for (let i = 0; i < data.t.length; i++) {
+                    if (data.c[i] != null) {
+                      points.push({
+                        time: data.t[i],
+                        value: data.c[i],
+                        close: data.c[i],
+                        open: Array.isArray(data.o) ? data.o[i] : undefined,
+                        high: Array.isArray(data.h) ? data.h[i] : undefined,
+                        low: Array.isArray(data.l) ? data.l[i] : undefined,
+                        volume: Array.isArray(data.v) ? data.v[i] : undefined,
+                      })
+                    }
+                  }
+                  newSeries[symbol] = points
 
-              const timestamps: number[] = result.timestamp || []
-              const q = result.indicators?.quote?.[0] || {}
-              const closes: number[] = q.close || []
-              const opens: number[] = q.open || []
-              const highs: number[] = q.high || []
-              const lows: number[] = q.low || []
-              const volumes: number[] = q.volume || []
-
-              const points: PricePoint[] = []
-              for (let i = 0; i < timestamps.length; i++) {
-                if (closes[i] != null) {
-                  points.push({
-                    time: timestamps[i],
-                    value: closes[i],
-                    close: closes[i],
-                    open: opens[i],
-                    high: highs[i],
-                    low: lows[i],
-                    volume: volumes[i],
-                  })
+                  const last = points[points.length - 1]?.value
+                  if (last) newQuotes[symbol] = { price: last, change: 0 }
                 }
+              } catch {
+                console.warn('Finnhub candle failed for', symbol)
               }
-              newSeries[symbol] = points
+            })
+          )
+        } else {
+          // Yahoo for no-key historical (original behavior)
+          await Promise.all(
+            selected.map(async (symbol) => {
+              try {
+                const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?period1=${period1}&period2=${period2}&interval=1d&indicators=quote&includeTimestamps=true`
+                const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } })
+                const json = await res.json()
+                const result = json?.chart?.result?.[0]
+                if (!result) return
 
-              // last price + rough change
-              const last = points[points.length - 1]?.value
-              const first = points[0]?.value
-              const chg = first && last ? ((last - first) / first) * 100 : 0
-              if (last) newQuotes[symbol] = { price: last, change: chg }
-            } catch {
-              // swallow per-symbol; real app would surface
-              console.warn('Yahoo fetch failed for', symbol)
-            }
-          })
-        )
+                const timestamps: number[] = result.timestamp || []
+                const q = result.indicators?.quote?.[0] || {}
+                const closes: number[] = q.close || []
+                const opens: number[] = q.open || []
+                const highs: number[] = q.high || []
+                const lows: number[] = q.low || []
+                const volumes: number[] = q.volume || []
 
-        // 1b. Current live quotes from Finnhub (preferred when token present for reliable current price + daily change)
+                const points: PricePoint[] = []
+                for (let i = 0; i < timestamps.length; i++) {
+                  if (closes[i] != null) {
+                    points.push({
+                      time: timestamps[i],
+                      value: closes[i],
+                      close: closes[i],
+                      open: opens[i],
+                      high: highs[i],
+                      low: lows[i],
+                      volume: volumes[i],
+                    })
+                  }
+                }
+                newSeries[symbol] = points
+
+                const last = points[points.length - 1]?.value
+                const first = points[0]?.value
+                const chg = first && last ? ((last - first) / first) * 100 : 0
+                if (last) newQuotes[symbol] = { price: last, change: chg }
+              } catch {
+                console.warn('Yahoo fetch failed for', symbol)
+              }
+            })
+          )
+        }
+
+        // Current live quotes from Finnhub (when token present for reliable current price + daily change)
         if (finnhubToken) {
           await Promise.all(
             selected.map(async (symbol) => {

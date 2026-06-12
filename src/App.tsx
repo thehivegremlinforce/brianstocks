@@ -440,6 +440,9 @@ export default function BrianStocks() {
                     series={series}
                     normalize={normalize}
                     height={420}
+                    chartType={chartType}
+                    showVolume={showVolume}
+                    indicators={{ sma20: showSma20, sma50: showSma50 }}
                   />
                 ) : (
                   <div className="h-[420px] flex items-center justify-center text-[#555] text-sm font-mono tracking-widest">
@@ -448,7 +451,7 @@ export default function BrianStocks() {
                 )}
               </div>
               <div className="text-[10px] text-[#555] mt-1.5 tracking-[1px]">
-                SOURCE: YAHOO FINANCE PUBLIC API • DAILY BARS • UP TO 5 YEARS
+                SOURCE: {finnhubToken ? 'FINNHUB CANDLES' : 'YAHOO FINANCE'} • DAILY BARS • UP TO 5 YEARS
               </div>
             </div>
 
