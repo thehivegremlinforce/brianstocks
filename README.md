@@ -64,14 +64,32 @@ Open http://localhost:5173
 - `Cmd/Ctrl + C` — clear watchlist
 - `ESC` — close any modal (settings/help)
 
-## Get a free Finnhub token (for news + earnings)
+## Finnhub Token (for live prices, news & earnings)
 
-1. Go to https://finnhub.io/register (free, no credit card)
-2. Copy your API key
-3. In BrianStocks click **SETTINGS** (top right)
-4. Paste the token and hit **SAVE + REFRESH DATA**
+Prices and basic chart history always work without a token (via public Yahoo Finance).
 
-Prices always work without a token. The token is stored only in your browser.
+A free Finnhub token unlocks:
+- Live current prices for all tickers (much more reliable than Yahoo for the "ticker prices" cards)
+- Company news + earnings data
+- Market pulse news
+
+You can provide the token in two convenient ways:
+
+**1. In the app (for local development)**
+- Open **SETTINGS** (top right or press `S`)
+- Paste your key and click **SAVE + REFRESH DATA**
+- Stored in your browser's localStorage
+
+**2. Via Vercel Environment Variables (recommended for production)**
+- In your Vercel project dashboard → **Settings → Environment Variables**
+- Add a new variable:
+  - Name: `VITE_FINNHUB_TOKEN`
+  - Value: your Finnhub API key
+  - Apply to: **Production** and **Preview** (optionally Development)
+- Redeploy (or push a new commit). The key is injected at build time by Vite and available via `import.meta.env.VITE_FINNHUB_TOKEN`.
+- The in-app Settings input can still override it at runtime if needed.
+
+Get a free key at https://finnhub.io/register (no credit card required, 60 calls/min on free tier).
 
 ## Data sources
 - Price history & quotes: Yahoo Finance public chart API (no key)
@@ -87,8 +105,14 @@ Vercel has excellent zero-config support for Vite projects and the Hobby (free) 
 3. Vercel will auto-detect it as a **Vite** project:
    - Build Command: `npm run build`
    - Output Directory: `dist`
-   - No extra environment variables needed (all data fetching is client-side; your Finnhub token stays in your browser's localStorage).
-4. Click Deploy.
+4. (Strongly recommended) Configure your Finnhub token as a build-time environment variable:
+   - Go to your Vercel project → **Settings → Environment Variables**
+   - Name: `VITE_FINNHUB_TOKEN`
+   - Value: your key from finnhub.io
+   - Apply to: Production + Preview
+   - Save, then trigger a new deployment (or just push to GitHub).
+   This makes live prices, news, and earnings work for everyone without requiring visitors to paste anything.
+5. Click Deploy (or it will start automatically if you connected the repo).
 
 After the first deploy:
 - Every push to `main` (or your default branch) will automatically trigger a new production deployment.
@@ -98,7 +122,7 @@ After the first deploy:
 ### Why this works great on free Vercel
 - Pure static SPA — no serverless functions or backend required.
 - All API calls (Yahoo Finance public endpoint + optional Finnhub) happen directly from the user's browser.
-- No secrets or server env vars needed.
+- Use the `VITE_FINNHUB_TOKEN` environment variable (recommended) so the key is baked in at build time and works for everyone without manual pasting.
 - The `vercel.json` in the repo provides explicit hints + SPA fallback (future-proof if you ever add client-side routing).
 
 ### Manual / alternative deploys

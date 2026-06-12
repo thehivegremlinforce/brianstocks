@@ -90,7 +90,13 @@ export const useWatchlistStore = create<WatchlistState>()(
       news: [],
       marketNews: [],
       earnings: [],
-      finnhubToken: typeof window !== 'undefined' ? (localStorage.getItem('bs_finnhub') || '') : '',
+      finnhubToken: (() => {
+        if (typeof window === 'undefined') return ''
+        // Support Vercel environment variable (must be prefixed VITE_ for Vite client exposure)
+        const envToken = (import.meta as any).env?.VITE_FINNHUB_TOKEN
+        if (envToken) return envToken
+        return localStorage.getItem('bs_finnhub') || ''
+      })(),
       loading: false,
       lastUpdated: null,
       positions: {},
