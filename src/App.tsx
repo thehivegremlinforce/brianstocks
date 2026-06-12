@@ -7,7 +7,7 @@ import { ChartCommandBar } from './components/ChartCommandBar'
 import { ChartLegend } from './components/ChartLegend'
 import { QuoteStrip } from './components/QuoteStrip'
 import { TelemetryBar, type MarketStatus } from './components/TelemetryBar'
-import { TICKER_COLORS } from './constants/tickerColors'
+
 import { useKeyboard } from './hooks/useKeyboard'
 import { getChartResolution } from './utils/chartResolution'
 import { getDateRangeStrings } from './utils/rangeDates'
@@ -348,7 +348,6 @@ export default function BrianStocks() {
                 <div className="text-xl font-semibold tracking-[-0.5px]">BRIANSTOCKS WATCHLIST</div>
                 <ChartLegend
                   tickers={selected}
-                  colors={TICKER_COLORS}
                   primaryTicker={primaryTicker}
                   chartType={chartType}
                 />
@@ -382,6 +381,7 @@ export default function BrianStocks() {
                 {hasData ? (
                   <PriceChart
                     series={chartSeries}
+                    watchlistOrder={selected}
                     normalize={normalize}
                     height={420}
                     chartType={chartType}
@@ -407,7 +407,6 @@ export default function BrianStocks() {
             <QuoteStrip
               tickers={selected}
               quotes={quotes}
-              colors={TICKER_COLORS}
               loading={loading}
               deltaLabel={finnhubToken ? 'DAY Δ%' : 'RANGE Δ%'}
             />

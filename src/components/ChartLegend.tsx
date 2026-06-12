@@ -1,11 +1,13 @@
+import { getWatchlistColors } from '../constants/tickerColors'
+
 interface ChartLegendProps {
   tickers: string[]
-  colors: Record<string, string>
   primaryTicker?: string
   chartType: 'line' | 'candle'
 }
 
-export function ChartLegend({ tickers, colors, primaryTicker, chartType }: ChartLegendProps) {
+export function ChartLegend({ tickers, primaryTicker, chartType }: ChartLegendProps) {
+  const colors = getWatchlistColors(tickers)
   if (tickers.length === 0) return null
 
   const displayTickers =
@@ -17,7 +19,7 @@ export function ChartLegend({ tickers, colors, primaryTicker, chartType }: Chart
         <span className="chart-legend__primary-badge">PRIMARY: {primaryTicker}</span>
       )}
       {displayTickers.map((ticker) => {
-        const color = colors[ticker] ?? '#67e8f9'
+        const color = colors[ticker.toUpperCase()] ?? colors[ticker]
         return (
           <div key={ticker} className="chart-legend__item" role="listitem">
             <span className="chart-legend__swatch" style={{ backgroundColor: color }} aria-hidden />

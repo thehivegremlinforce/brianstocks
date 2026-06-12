@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import * as LightweightCharts from 'lightweight-charts'
 import type { PricePoint } from '../types/market'
-import { getTickerColor } from '../constants/tickerColors'
+import { getWatchlistColors } from '../constants/tickerColors'
 
 interface Props {
   series: Record<string, PricePoint[]>
@@ -11,6 +11,7 @@ interface Props {
   showVolume?: boolean
   indicators?: { sma20?: boolean; sma50?: boolean }
   primaryTicker?: string
+  watchlistOrder?: string[]
 }
 
 export function PriceChart(props: Props) {
@@ -22,6 +23,7 @@ export function PriceChart(props: Props) {
     showVolume = true,
     indicators = {},
     primaryTicker: primaryTickerProp,
+    watchlistOrder,
   } = props
   const containerRef = useRef<HTMLDivElement>(null)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -74,6 +76,7 @@ export function PriceChart(props: Props) {
     chartRef.current = chart
 
     const tickers = Object.keys(series).filter((t) => (series[t]?.length ?? 0) > 0)
+    const colorMap = getWatchlistColors(watchlistOrder ?? tickers)
     if (tickers.length === 0) {
       chart.timeScale().fitContent()
     }
@@ -102,7 +105,7 @@ export function PriceChart(props: Props) {
         data = data.map(d => ({ ...d, value: (d.value / base) * 100 }))
       }
 
-      const color = getTickerColor(ticker)
+      const color = colorMap[ticker.toUpperCase()] ?? colorMap[ticker]
 
       if (isCandle) {
         // Use rich OHLC from store (already populated). Note: close is .value
@@ -228,7 +231,7 @@ export function PriceChart(props: Props) {
       window.removeEventListener('resize', handleResize)
       chart.remove()
     }
-  }, [series, normalize, height, chartType, showVolume, indicators, primaryTickerProp])
+  }, [series, normalize, height, chartType, showVolume, indicators, primaryTickerProp, watchlistOrder])
 
   return (
     <div

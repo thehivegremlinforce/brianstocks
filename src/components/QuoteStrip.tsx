@@ -3,15 +3,17 @@ interface Quote {
   change: number
 }
 
+import { getWatchlistColors } from '../constants/tickerColors'
+
 interface QuoteStripProps {
   tickers: string[]
   quotes: Record<string, Quote | undefined>
-  colors?: Record<string, string>
   loading?: boolean
   deltaLabel?: string
 }
 
-export function QuoteStrip({ tickers, quotes, colors = {}, loading, deltaLabel = 'Δ%' }: QuoteStripProps) {
+export function QuoteStrip({ tickers, quotes, loading, deltaLabel = 'Δ%' }: QuoteStripProps) {
+  const colors = getWatchlistColors(tickers)
   if (tickers.length === 0) {
     return (
       <div className="quote-strip quote-strip--empty">
@@ -31,7 +33,7 @@ export function QuoteStrip({ tickers, quotes, colors = {}, loading, deltaLabel =
       <div className="quote-strip__scroll">
         {tickers.map((ticker) => {
           const q = quotes[ticker]
-          const color = colors[ticker]
+          const color = colors[ticker.toUpperCase()]
           const deltaClass = q ? (q.change >= 0 ? 'delta-pos' : 'delta-neg') : 'delta-flat'
 
           return (
